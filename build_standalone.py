@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Genera un singolo file HTML standalone da condividere con il committente.
+Genera file HTML standalone da condividere con il committente.
 Tutto il CSS, JS e le immagini vengono inline nel file HTML.
 
 Uso:
-    python build_standalone.py
-    # oppure con nome file personalizzato:
-    python build_standalone.py --output "Anteprima San Michele.html"
+    python build_standalone.py                  # sito principale
+    python build_standalone.py --page dimora    # landing B&B
+    python build_standalone.py --all            # entrambi
+    python build_standalone.py --output "Anteprima.html"
 
-Output: dist/Complesso San Michele.html
+Output: dist/
 """
 
 import argparse
@@ -37,7 +38,6 @@ def inline_css(css: str) -> str:
         if asset.exists():
             return f"url({b64_data_uri(asset)})"
         return m.group(0)
-
     return re.sub(r"url\(([^)]+)\)", replace_url, css)
 
 
@@ -48,77 +48,126 @@ def inline_jsx(jsx: str) -> str:
         if asset.exists():
             return f'"{b64_data_uri(asset)}"'
         return m.group(0)
-
     return re.sub(r'"(assets/[^"]+)"', replace_src, jsx)
 
 
-def build(output_name: str):
-    DIST.mkdir(exist_ok=True)
-
-    html = (PROJECT / "Complesso San Michele.html").read_text(encoding="utf-8")
-
-    # Inline styles.css
-    css_raw = (PROJECT / "styles.css").read_text(encoding="utf-8")
-    css_inlined = inline_css(css_raw)
-    html = html.replace(
-        '<link rel="stylesheet" href="styles.css" />',
-        f"<style>\n{css_inlined}\n</style>",
+def make_fetch_patch(state_file: Path) -> str:
+    """Monkey-patch window.fetch so image-slot.js finds the state JSON
+    without hitting the filesystem (file:// CORS policy blocks it)."""
+    if not state_file.exists():
+        return ""
+    state_json = state_file.read_text(encoding="utf-8")
+    return (
+        "<script>\n"
+        "(function(){\n"
+        f"  const __slots = {state_json};\n"
+        "  const _fetch = window.fetch.bind(window);\n"
+        "  window.fetch = function(url, ...a) {\n"
+        "    if (typeof url === 'string' && url.includes('.image-slots.state.json'))\n"
+        "      return Promise.resolve(new Response(JSON.stringify(__slots), {status:200}));\n"
+        "    return _fetch(url, ...a);\n"
+        "  };\n"
+        "})();\n"
+        "</script>\n"
     )
 
-    # Inject image-slot state (monkey-patch fetch so image-slot.js finds the data
-    # without needing to load .image-slots.state.json from the filesystem —
-    # file:// fetch is blocked by Chrome's CORS policy for local files)
-    state_file = PROJECT / ".image-slots.state.json"
-    if state_file.exists():
-        state_json = state_file.read_text(encoding="utf-8")
-        fetch_patch = (
-            "<script>\n"
-            "(function(){\n"
-            f"  const __slots = {state_json};\n"
-            "  const _fetch = window.fetch.bind(window);\n"
-            "  window.fetch = function(url, ...a) {\n"
-            "    if (typeof url === 'string' && url.includes('.image-slots.state.json'))\n"
-            "      return Promise.resolve(new Response(JSON.stringify(__slots), {status:200}));\n"
-            "    return _fetch(url, ...a);\n"
-            "  };\n"
-            "})();\n"
-            "</script>\n"
-        )
-    else:
-        fetch_patch = ""
 
-    # Inline image-slot.js
+def build_main(output_name: str):
+    DIST.mkdir(exist_ok=True)
+    html = (PROJECT / "Complesso San Michele.html").read_text(encoding="utf-8")
+
+    css_raw = (PROJECT / "styles.css").read_text(encoding="utf-8")
+    html = html.replace(
+        '<link rel="stylesheet" href="styles.css" />',
+        f"<style>\n{inline_css(css_raw)}\n</style>",
+    )
+
+    state_file = PROJECT / ".image-slots.state.json"
+    fetch_patch = make_fetch_patch(state_file)
+
     image_slot = (PROJECT / "image-slot.js").read_text(encoding="utf-8")
     html = html.replace(
         '<script src="image-slot.js"></script>',
         f"{fetch_patch}<script>\n{image_slot}\n</script>",
     )
 
-    # Inline app.jsx (keep type="text/babel" so Babel CDN can transpile it)
     jsx_raw = (PROJECT / "app.jsx").read_text(encoding="utf-8")
-    jsx_inlined = inline_jsx(jsx_raw)
     html = html.replace(
         '<script type="text/babel" src="app.jsx"></script>',
-        f'<script type="text/babel">\n{jsx_inlined}\n</script>',
+        f'<script type="text/babel">\n{inline_jsx(jsx_raw)}\n</script>',
     )
 
     out = DIST / output_name
     out.write_text(html, encoding="utf-8")
-    size_kb = out.stat().st_size / 1024
     slot_count = len(json.loads(state_file.read_text())) if state_file.exists() else 0
-    print(f"✓ Generato: {out}  ({size_kb:.0f} KB)")
+    print(f"✓ {out}  ({out.stat().st_size / 1024:.0f} KB)")
     if slot_count:
-        print(f"  Immagini iniettate dagli slot: {slot_count}")
-    print("  Nota: richiede connessione internet per React, Babel e Google Fonts (CDN).")
-    print("  Le API di prenotazione non funzionano senza il backend Flask.")
+        print(f"  Immagini slot: {slot_count}")
+
+
+def build_dimora(output_name: str):
+    DIST.mkdir(exist_ok=True)
+    html = (PROJECT / "dimora.html").read_text(encoding="utf-8")
+
+    # Inline styles.css
+    css_raw = (PROJECT / "styles.css").read_text(encoding="utf-8")
+    html = html.replace(
+        '<link rel="stylesheet" href="styles.css" />',
+        f"<style>\n{inline_css(css_raw)}\n</style>",
+    )
+
+    # Inline dimora.css
+    dimora_css_raw = (PROJECT / "dimora.css").read_text(encoding="utf-8")
+    html = html.replace(
+        '<link rel="stylesheet" href="dimora.css" />',
+        f"<style>\n{inline_css(dimora_css_raw)}\n</style>",
+    )
+
+    state_file = PROJECT / ".image-slots.state.json"
+    fetch_patch = make_fetch_patch(state_file)
+
+    image_slot = (PROJECT / "image-slot.js").read_text(encoding="utf-8")
+    html = html.replace(
+        '<script src="image-slot.js"></script>',
+        f"{fetch_patch}<script>\n{image_slot}\n</script>",
+    )
+
+    jsx_raw = (PROJECT / "dimora.jsx").read_text(encoding="utf-8")
+    html = html.replace(
+        '<script type="text/babel" src="dimora.jsx"></script>',
+        f'<script type="text/babel">\n{inline_jsx(jsx_raw)}\n</script>',
+    )
+
+    out = DIST / output_name
+    out.write_text(html, encoding="utf-8")
+    slot_count = len(json.loads(state_file.read_text())) if state_file.exists() else 0
+    print(f"✓ {out}  ({out.stat().st_size / 1024:.0f} KB)")
+    if slot_count:
+        print(f"  Immagini slot: {slot_count}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Genera HTML standalone per anteprima.")
-    parser.add_argument(
-        "--output",
-        default="Complesso San Michele.html",
-        help="Nome del file di output (default: 'Complesso San Michele.html')",
-    )
+    parser.add_argument("--page", choices=["main", "dimora"], default="main",
+                        help="Pagina da generare (default: main)")
+    parser.add_argument("--all", action="store_true",
+                        help="Genera entrambe le pagine")
+    parser.add_argument("--output", default=None,
+                        help="Nome file di output personalizzato")
     args = parser.parse_args()
-    build(args.output)
+
+    note = (
+        "  Nota: richiede connessione internet per React, Babel e Google Fonts (CDN).\n"
+        "  Le API di prenotazione non funzionano senza il backend Flask."
+    )
+
+    if args.all:
+        build_main(args.output or "Complesso San Michele.html")
+        build_dimora(args.output or "Dimora San Michele.html")
+        print(note)
+    elif args.page == "dimora":
+        build_dimora(args.output or "Dimora San Michele.html")
+        print(note)
+    else:
+        build_main(args.output or "Complesso San Michele.html")
+        print(note)
