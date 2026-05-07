@@ -5,7 +5,7 @@ function Home({ lang, navigate }) {
   return (
     <div className="page page-home">
       <section className="hero">
-        <div className="hero-merlettaie" aria-hidden="true"></div>
+        <div className="hero-merlettaie" aria-hidden="true" style={{backgroundImage:'url("assets/merlettaie.jpeg")'}}></div>
         <div className="hero-veil"></div>
         <div className="hero-content" style={{ opacity: "1" }}>
           <div className="hero-eyebrow">
