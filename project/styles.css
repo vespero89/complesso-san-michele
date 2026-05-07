@@ -541,7 +541,10 @@ p { text-wrap: pretty; }
   color: var(--ink-2);
 }
 @media (max-width: 880px) {
-  .rooms-grid { grid-template-columns: 1fr; gap: 24px; }
+  .rooms { padding: 48px 20px; }
+  .rooms-grid { grid-template-columns: 1fr; gap: 20px; }
+  .room-body { padding: 20px 20px 24px; }
+  .room-card h4 { font-size: 24px; }
 }
 
 /* ===================== BOOKING ===================== */
@@ -809,8 +812,21 @@ p { text-wrap: pretty; }
 .btn-ghost:hover { background: var(--ink); color: var(--paper); }
 
 @media (max-width: 980px) {
-  .booking-grid { grid-template-columns: 1fr; gap: 32px; }
+  .booking { padding: 56px 20px; }
+  .booking .section-head { margin-bottom: 28px; }
+  .booking-grid { grid-template-columns: 1fr; gap: 28px; }
   .cal-months { grid-template-columns: 1fr; }
+  .cal-wrap { padding: 20px; }
+  .cal-nav { top: 16px; right: 16px; }
+  .booking-form { padding: 20px; gap: 12px; }
+  .booking-confirm { padding: 32px 20px; }
+  .confirm-detail { gap: 12px; }
+  .cal-legend { flex-wrap: wrap; gap: 12px; }
+}
+
+@media (max-width: 480px) {
+  .confirm-detail { grid-template-columns: 1fr 1fr; }
+  .confirm-detail > div:last-child { grid-column: span 2; }
 }
 
 /* ===================== MISSIONE ===================== */
