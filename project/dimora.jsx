@@ -170,75 +170,47 @@ function useUrlForSlot(id) {
   return !v ? null : typeof v === "string" ? v : v.u;
 }
 
-// ============== Shared: Lightbox ==============
-const LightboxCtx = React.createContext(() => {});
+// ============== RoomCarousel ==============
+function RoomCarousel({ images }) {
+  const [idx, setIdx] = useState(0);
+  const [paused, setPaused] = useState(false);
 
-function LightboxProvider({ children }) {
-  const [state, setState] = useState(null);
-  const open = (items, idx = 0) => setState({ items, idx });
-  const close = () => setState(null);
-  function nav(d) {
-    setState(s => s ? { ...s, idx: (s.idx + d + s.items.length) % s.items.length } : s);
-  }
   useEffect(() => {
-    if (!state) return;
-    const h = e => {
-      if (e.key === "Escape") close();
-      else if (e.key === "ArrowRight") nav(1);
-      else if (e.key === "ArrowLeft") nav(-1);
-    };
-    document.addEventListener("keydown", h);
-    return () => document.removeEventListener("keydown", h);
-  }, [state]);
-  return (
-    <LightboxCtx.Provider value={open}>
-      {children}
-      {state && (
-        <div className="lightbox" onClick={close}>
-          <button className="lb-close" onClick={close}>×</button>
-          {state.items.length > 1 &&
-            <button className="lb-nav prev" onClick={e => { e.stopPropagation(); nav(-1); }}>‹</button>}
-          <div className="lb-stage" onClick={e => e.stopPropagation()}>
-            <img src={state.items[state.idx].url} alt="" />
-            {state.items[state.idx].caption &&
-              <div className="lb-caption">{state.items[state.idx].caption}</div>}
-          </div>
-          {state.items.length > 1 &&
-            <button className="lb-nav next" onClick={e => { e.stopPropagation(); nav(1); }}>›</button>}
-          {state.items.length > 1 &&
-            <div className="lb-counter">{state.idx + 1} / {state.items.length}</div>}
-        </div>
-      )}
-    </LightboxCtx.Provider>
-  );
-}
+    if (paused || images.length < 2) return;
+    const iv = setInterval(() => setIdx(i => (i + 1) % images.length), 4000);
+    return () => clearInterval(iv);
+  }, [paused, images.length]);
 
-function useLightbox() { return React.useContext(LightboxCtx); }
+  const prev = () => setIdx(i => (i - 1 + images.length) % images.length);
+  const next = () => setIdx(i => (i + 1) % images.length);
 
-// ============== Shared: GallerySlot ==============
-function GallerySlot({ slotId, label, aspect, items, className = "" }) {
-  const slots = React.useContext(SlotsCtx);
-  const open = useLightbox();
-  const v = slots[`slot-${slotId}`];
-  const url = !v ? null : typeof v === "string" ? v : v.u;
-  function handleClick(e) {
-    if (!url) return;
-    e.preventDefault(); e.stopPropagation();
-    const filled = items
-      .map(it => {
-        const vv = slots[`slot-${it.slotId}`];
-        const u = !vv ? null : typeof vv === "string" ? vv : vv.u;
-        return u ? { url: u, caption: it.caption || "", slotId: it.slotId } : null;
-      })
-      .filter(Boolean);
-    if (!filled.length) return;
-    const start = Math.max(0, filled.findIndex(f => f.slotId === slotId));
-    open(filled, start);
-  }
   return (
-    <div className={`gallery-slot ${url ? "filled" : ""} ${className}`} onClick={handleClick}>
-      <ImageSlot id={slotId} label={label} aspect={aspect} />
-      {url && <div className="zoom-hint" aria-hidden="true">⤢</div>}
+    <div
+      className="d-carousel"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
+      {images.map((src, i) => (
+        <img
+          key={i}
+          src={src}
+          alt=""
+          className={`d-carousel-img${i === idx ? " active" : ""}`}
+          loading={i === 0 ? "eager" : "lazy"}
+        />
+      ))}
+      <button className="d-car-btn d-car-prev" onClick={prev} aria-label="precedente">‹</button>
+      <button className="d-car-btn d-car-next" onClick={next} aria-label="successiva">›</button>
+      <div className="d-carousel-dots">
+        {images.map((_, i) => (
+          <button
+            key={i}
+            className={`d-dot${i === idx ? " active" : ""}`}
+            onClick={() => setIdx(i)}
+            aria-label={`foto ${i + 1}`}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -308,38 +280,23 @@ function DHero({ lang, scrollToRooms, scrollToBooking }) {
   );
 }
 
-// ============== DGallery ==============
-function DGallery({ lang }) {
-  const t = T[lang];
-  const ids = ["dimora-gal-0","dimora-gal-1","dimora-gal-2","dimora-gal-3","dimora-gal-4","dimora-gal-5"];
-  const items = ids.map(id => ({ slotId: id, caption: "" }));
-  // aspect ratios: wide items get 3/2, portrait items get 4/5
-  const aspects = ["3/2","4/5","4/5","3/2","4/3","4/3"];
-  return (
-    <section className="d-gallery" id="gallery">
-      <div className="d-section-inner">
-        <div className="d-section-head">
-          <span className="kicker">{t.gallery_kicker}</span>
-          <p>{t.gallery_sub}</p>
-        </div>
-        <div className="d-gallery-grid">
-          {ids.map((id, i) => (
-            <GallerySlot
-              key={id}
-              slotId={id}
-              label={t.drop}
-              aspect={aspects[i]}
-              items={items}
-              className={`d-gal-item d-gal-item--${i}`}
-            />
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // ============== DRooms ==============
+// Immagini placeholder (picsum.photos, seed fisso = stesso risultato ogni volta)
+const ROOM_IMAGES = {
+  double: [
+    "https://picsum.photos/seed/offida-d1/900/600",
+    "https://picsum.photos/seed/offida-d2/900/600",
+    "https://picsum.photos/seed/offida-d3/900/600",
+    "https://picsum.photos/seed/offida-d4/900/600",
+  ],
+  single: [
+    "https://picsum.photos/seed/offida-s1/900/600",
+    "https://picsum.photos/seed/offida-s2/900/600",
+    "https://picsum.photos/seed/offida-s3/900/600",
+    "https://picsum.photos/seed/offida-s4/900/600",
+  ],
+};
+
 function DRooms({ lang, scrollToBooking, setPreselected }) {
   const t = T[lang];
   const rooms = [
@@ -347,8 +304,6 @@ function DRooms({ lang, scrollToBooking, setPreselected }) {
       id: "double",
       name: t.room1_name,
       desc: t.room1_desc,
-      slotId: "room-double",
-      extraSlots: ["room-double-b", "room-double-c"],
       feats: [t.feat_2guests, t.feat_bath, t.feat_wifi, t.feat_breakfast, t.feat_beams, t.feat_view],
       num: "01",
     },
@@ -356,8 +311,6 @@ function DRooms({ lang, scrollToBooking, setPreselected }) {
       id: "single",
       name: t.room2_name,
       desc: t.room2_desc,
-      slotId: "room-single",
-      extraSlots: ["room-single-b", "room-single-c"],
       feats: [t.feat_1guest, t.feat_bath, t.feat_wifi, t.feat_breakfast, t.feat_courtyard],
       num: "02",
     },
@@ -368,37 +321,29 @@ function DRooms({ lang, scrollToBooking, setPreselected }) {
         <div className="d-section-head">
           <span className="kicker">{t.rooms_kicker}</span>
         </div>
-        {rooms.map((room, ri) => {
-          const allSlots = [room.slotId, ...room.extraSlots].map(s => ({ slotId: s, caption: room.name }));
-          return (
-            <div key={room.id} className={`d-room${ri % 2 === 1 ? " d-room--reverse" : ""}`}>
-              <div className="d-room-media">
-                <GallerySlot
-                  slotId={room.slotId}
-                  label={`${t.drop} — ${room.name}`}
-                  aspect="4/3"
-                  items={allSlots}
-                />
-              </div>
-              <div className="d-room-body">
-                <div className="d-room-num">{room.num}</div>
-                <h2 className="d-room-title">{room.name}</h2>
-                <p className="d-room-desc">{room.desc}</p>
-                <div className="d-room-divider" />
-                <ul className="d-room-feats">
-                  {room.feats.map(f => <li key={f}>{f}</li>)}
-                </ul>
-                <p className="d-room-price-note">{t.price_note}</p>
-                <button
-                  className="d-btn-primary"
-                  onClick={() => { setPreselected(room.id); scrollToBooking(); }}
-                >
-                  {t.book_room} →
-                </button>
-              </div>
+        {rooms.map((room, ri) => (
+          <div key={room.id} className={`d-room${ri % 2 === 1 ? " d-room--reverse" : ""}`}>
+            <div className="d-room-media">
+              <RoomCarousel images={ROOM_IMAGES[room.id]} />
             </div>
-          );
-        })}
+            <div className="d-room-body">
+              <div className="d-room-num">{room.num}</div>
+              <h2 className="d-room-title">{room.name}</h2>
+              <p className="d-room-desc">{room.desc}</p>
+              <div className="d-room-divider" />
+              <ul className="d-room-feats">
+                {room.feats.map(f => <li key={f}>{f}</li>)}
+              </ul>
+              <p className="d-room-price-note">{t.price_note}</p>
+              <button
+                className="d-btn-primary"
+                onClick={() => { setPreselected(room.id); scrollToBooking(); }}
+              >
+                {t.book_room} →
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -700,23 +645,20 @@ function App() {
 
   return (
     <SlotsProvider>
-      <LightboxProvider>
-        <DHeader lang={lang} setLang={setLang} scrollToBooking={() => scrollTo("booking")} />
-        <DHero
-          lang={lang}
-          scrollToRooms={() => scrollTo("rooms")}
-          scrollToBooking={() => scrollTo("booking")}
-        />
-        <DGallery lang={lang} />
-        <DRooms
-          lang={lang}
-          scrollToBooking={() => scrollTo("booking")}
-          setPreselected={setPreselected}
-        />
-        <DBooking lang={lang} preselected={preselected} />
-        <DInfo lang={lang} />
-        <DFooter lang={lang} />
-      </LightboxProvider>
+      <DHeader lang={lang} setLang={setLang} scrollToBooking={() => scrollTo("booking")} />
+      <DHero
+        lang={lang}
+        scrollToRooms={() => scrollTo("rooms")}
+        scrollToBooking={() => scrollTo("booking")}
+      />
+      <DRooms
+        lang={lang}
+        scrollToBooking={() => scrollTo("booking")}
+        setPreselected={setPreselected}
+      />
+      <DBooking lang={lang} preselected={preselected} />
+      <DInfo lang={lang} />
+      <DFooter lang={lang} />
     </SlotsProvider>
   );
 }
