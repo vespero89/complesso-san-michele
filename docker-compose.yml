@@ -1,0 +1,29 @@
+services:
+  web:
+    build: .
+    container_name: csm-web
+    restart: unless-stopped
+
+    # Porta esposta SOLO su localhost — NPM fa da proxy verso l'esterno
+    # In NPM: crea un Proxy Host e punta a http://localhost:5000
+    ports:
+      - "127.0.0.1:5000:5000"
+
+    # Variabili d'ambiente dal file .env
+    env_file: .env
+
+    # Forza il database dentro il volume persistente
+    environment:
+      - DATABASE_URL=sqlite:////app/data/csm.db
+
+    volumes:
+      # Database SQLite — persiste tra restart e rebuild
+      - csm_data:/app/data
+
+      # File statici del frontend — bind mount dalla cartella host.
+      # Modifichi CSS/JSX/HTML → visibili subito senza rebuild.
+      - ./project:/app/project
+
+volumes:
+  csm_data:
+    driver: local

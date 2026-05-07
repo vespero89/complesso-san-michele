@@ -9,7 +9,7 @@ Tre sezioni: **Chiesa** (centro polifunzionale), **Laboratorio** (studio di arte
 
 1. [Struttura del progetto](#struttura-del-progetto)
 2. [Come testare in locale](#come-testare-in-locale)
-3. [Deploy in produzione](#deploy-in-produzione)
+3. [Deploy in produzione (Docker)](#deploy-in-produzione-docker)
 4. [Gestione admin](#gestione-admin)
 5. [Attivare i pagamenti Stripe](#attivare-i-pagamenti-stripe)
 6. [Aggiungere le foto](#aggiungere-le-foto)
@@ -117,143 +117,148 @@ Il pannello admin su **http://localhost:5000/gestione**
 
 ---
 
-## Deploy in produzione
+## Deploy in produzione (Docker)
 
-Stack consigliato: **VPS (Hetzner CX11 ~€4/mese) + Nginx + Gunicorn + Let's Encrypt**
+Stack: **VPS (Hetzner CX11 ~€4/mese) + Docker + Nginx Proxy Manager**  
+Nginx Proxy Manager gestisce HTTPS/Let's Encrypt con interfaccia grafica — nessuna configurazione Nginx manuale.
 
-### 1. Prepara il server (Ubuntu 22.04)
-
-```bash
-sudo apt update && sudo apt upgrade -y
-sudo apt install python3-pip python3-venv nginx certbot python3-certbot-nginx -y
-```
-
-### 2. Carica il progetto
+### Prerequisiti sul VPS
 
 ```bash
-# Dal tuo computer
-scp -r . user@IP-VPS:/var/www/csm/
-
-# Sul server
-cd /var/www/csm
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install gunicorn
+# Docker + Docker Compose
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER   # poi rilogga
 ```
 
-### 3. Configura le variabili d'ambiente
+Se non hai ancora Nginx Proxy Manager, avvialo una volta sola:
+
+```bash
+mkdir ~/npm && cd ~/npm
+cat > docker-compose.yml << 'EOF'
+services:
+  app:
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81"    # interfaccia admin NPM
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+volumes:
+  npm_data:
+  npm_letsencrypt:
+EOF
+docker compose up -d
+```
+
+Interfaccia NPM: `http://IP-VPS:81` — credenziali default `admin@example.com` / `changeme`.
+
+---
+
+### 1. Clona il repo sul VPS
+
+```bash
+git clone https://github.com/vespero89/complesso-san-michele.git /srv/csm
+cd /srv/csm
+```
+
+### 2. Configura le variabili d'ambiente
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-**Genera l'hash della password admin** (eseguilo sul server):
+**Genera l'hash della password admin:**
 
 ```bash
-python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('LA-TUA-PASSWORD'))"
+docker run --rm python:3.11-slim python3 -c \
+  "from werkzeug.security import generate_password_hash; print(generate_password_hash('LA-TUA-PASSWORD'))"
 ```
 
-Incolla l'output in `ADMIN_PASSWORD_HASH` nel `.env`. Rimuovi `ADMIN_PASSWORD` dal file.
-
-Impostazioni minime per produzione:
+Impostazioni minime nel `.env`:
 
 ```env
 SECRET_KEY=stringa-casuale-lunga-almeno-32-caratteri
-DATABASE_URL=sqlite:////var/www/csm/csm.db
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD_HASH=pbkdf2:sha256:...  # hash generato sopra
+ADMIN_PASSWORD_HASH=pbkdf2:sha256:...   # hash generato sopra
 SITE_URL=https://www.complessosanmichele-offida.it
 FLASK_ENV=production
 ```
 
-### 4. Crea il servizio systemd
+> `DATABASE_URL` non serve: `docker-compose.yml` la imposta già a `/app/data/csm.db` nel volume persistente.
+
+### 3. Avvia il container
 
 ```bash
-sudo nano /etc/systemd/system/csm.service
+docker compose up -d --build
 ```
 
-```ini
-[Unit]
-Description=Complesso San Michele Flask App
-After=network.target
-
-[Service]
-User=www-data
-WorkingDirectory=/var/www/csm
-Environment="PATH=/var/www/csm/venv/bin"
-EnvironmentFile=/var/www/csm/.env
-ExecStart=/var/www/csm/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 app:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
+Verifica che giri:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable csm
-sudo systemctl start csm
-sudo systemctl status csm   # verifica che sia running
+docker compose logs -f          # log in tempo reale
+curl http://localhost:5000       # deve rispondere con l'HTML del sito
 ```
 
-### 5. Configura Nginx
+### 4. Configura Nginx Proxy Manager
 
-```bash
-sudo nano /etc/nginx/sites-available/csm
-```
+1. Apri `http://IP-VPS:81` → **Proxy Hosts → Add Proxy Host**
+2. Compila:
+   - **Domain Names**: `complessosanmichele-offida.it` e `www.complessosanmichele-offida.it`
+   - **Scheme**: `http`
+   - **Forward Hostname/IP**: `IP-VPS` (o `host.docker.internal` se NPM è sullo stesso host)
+   - **Forward Port**: `5000`
+3. Tab **SSL** → *Request a new SSL Certificate* → spunta *Force SSL* → salva
 
-```nginx
-server {
-    listen 80;
-    server_name complessosanmichele-offida.it www.complessosanmichele-offida.it;
+NPM ottiene automaticamente il certificato Let's Encrypt e lo rinnova. Finito.
 
-    # File statici serviti direttamente da Nginx (più veloce di Flask)
-    location /project/ {
-        alias /var/www/csm/project/;
-        expires 7d;
-        add_header Cache-Control "public";
-    }
-
-    # Tutto il resto passa a Gunicorn
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-```bash
-sudo ln -s /etc/nginx/sites-available/csm /etc/nginx/sites-enabled/
-sudo nginx -t            # verifica configurazione
-sudo systemctl reload nginx
-```
-
-### 6. HTTPS con Let's Encrypt
-
-```bash
-sudo certbot --nginx -d complessosanmichele-offida.it -d www.complessosanmichele-offida.it
-```
-
-Certbot aggiorna automaticamente la configurazione Nginx e imposta il rinnovo automatico.
-
-### 7. Verifica finale
+### 5. Verifica finale
 
 ```bash
 curl https://www.complessosanmichele-offida.it/api/unavailable
-# deve rispondere con []
+# deve rispondere: []
 ```
+
+---
 
 ### Aggiornare il sito dopo modifiche
 
+**Cambi al frontend** (CSS, JSX, HTML) — nessun rebuild:
 ```bash
-# Sul server, nella cartella del progetto
-git pull                          # se usi git per il deploy
-sudo systemctl restart csm        # riavvia Gunicorn
+git pull   # i file project/ sono bind-mounted, visibili subito
+```
+
+**Cambi al backend** (app.py, requirements.txt) — rebuild necessario:
+```bash
+git pull
+docker compose up -d --build
+```
+
+### Comandi utili
+
+```bash
+docker compose logs -f           # log in tempo reale
+docker compose restart           # riavvia senza rebuild
+docker compose down              # ferma e rimuove container (dati salvi nel volume)
+docker compose down -v           # ⚠ ferma E cancella anche i dati (database!)
+docker exec -it csm-web bash     # shell dentro il container
+```
+
+### Backup del database
+
+Il database SQLite è in un volume Docker. Per fare backup:
+
+```bash
+docker cp csm-web:/app/data/csm.db ~/backup-csm-$(date +%Y%m%d).db
+```
+
+Crontab giornaliero consigliato:
+
+```bash
+0 3 * * * docker cp csm-web:/app/data/csm.db ~/backups/csm-$(date +\%Y\%m\%d).db
 ```
 
 ---

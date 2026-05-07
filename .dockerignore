@@ -1,0 +1,25 @@
+# Git
+.git
+.gitignore
+
+# Ambiente Python locale
+venv/
+env/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Variabili d'ambiente (non nel container — usa .env sul server)
+.env
+
+# Database locale (il container usa il suo volume)
+*.db
+*.sqlite
+
+# macOS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# File di sviluppo
+README.md
