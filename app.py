@@ -195,6 +195,70 @@ class NewsletterSubscriber(db.Model):
     active = db.Column(db.Boolean, default=True)
 
 
+class RoomRate(db.Model):
+    """
+    Tariffa per camera in un periodo.
+    Più tariffe possono sovrapporsi; vince quella con date_from più recente.
+    Se nessuna tariffa copre una notte, si usa il fallback da .env.
+    """
+    __tablename__ = "room_rates"
+
+    id = db.Column(db.Integer, primary_key=True)
+    room = db.Column(db.String(20), nullable=False)   # 'double' | 'single' | 'both'
+    date_from = db.Column(db.Date, nullable=False)
+    date_to = db.Column(db.Date, nullable=False)       # escluso (come check_out)
+    price_cents = db.Column(db.Integer, nullable=False)  # prezzo per notte in centesimi
+    label = db.Column(db.String(100))                  # es. "Estate 2025", "Natale"
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def room_label(self):
+        return {"double": "Matrimoniale", "single": "Singola", "both": "Entrambe"}.get(
+            self.room, self.room
+        )
+
+    @property
+    def price_eur(self):
+        return f"€{self.price_cents / 100:.2f}"
+
+
+# ─── Helper: statistiche e prezzi ─────────────────────────────────────────────
+
+
+def get_stats():
+    return {
+        "total": Booking.query.count(),
+        "pending": Booking.query.filter_by(status="pending").count(),
+        "confirmed": Booking.query.filter_by(status="confirmed").count(),
+        "rejected": Booking.query.filter_by(status="rejected").count(),
+        "subscribers": NewsletterSubscriber.query.filter_by(active=True).count(),
+    }
+
+
+def calculate_booking_price(booking):
+    """
+    Calcola il totale in centesimi per una prenotazione.
+    Per ogni notte cerca la tariffa più specifica (date_from più recente).
+    Fallback: STRIPE_PRICE_DOUBLE / STRIPE_PRICE_SINGLE da .env.
+    """
+    default = STRIPE_PRICE_DOUBLE if booking.room == "double" else STRIPE_PRICE_SINGLE
+    total = 0
+    cur = booking.check_in
+    while cur < booking.check_out:
+        rate = (
+            RoomRate.query.filter(
+                RoomRate.room.in_([booking.room, "both"]),
+                RoomRate.date_from <= cur,
+                RoomRate.date_to > cur,
+            )
+            .order_by(RoomRate.date_from.desc())
+            .first()
+        )
+        total += rate.price_cents if rate else default
+        cur += timedelta(days=1)
+    return total
+
+
 # ─── Serve frontend statico ────────────────────────────────────────────────────
 
 
@@ -325,10 +389,7 @@ def create_checkout_session(booking_id):
     if booking.payment_status == "paid":
         return jsonify({"error": "Questa prenotazione è già stata pagata."}), 400
 
-    price_per_night = (
-        STRIPE_PRICE_DOUBLE if booking.room == "double" else STRIPE_PRICE_SINGLE
-    )
-    total_cents = price_per_night * booking.nights
+    total_cents = calculate_booking_price(booking)
 
     try:
         checkout = stripe.checkout.Session.create(
@@ -338,7 +399,7 @@ def create_checkout_session(booking_id):
                 {
                     "price_data": {
                         "currency": "eur",
-                        "unit_amount": price_per_night,
+                        "unit_amount": total_cents,   # totale già calcolato (tariffe dinamiche)
                         "product_data": {
                             "name": f"Complesso San Michele — {booking.room_label}",
                             "description": (
@@ -348,7 +409,7 @@ def create_checkout_session(booking_id):
                             ),
                         },
                     },
-                    "quantity": booking.nights,
+                    "quantity": 1,
                 }
             ],
             customer_email=booking.email,
@@ -464,19 +525,10 @@ def admin_dashboard():
     query = Booking.query.order_by(Booking.created_at.desc())
     if status_filter:
         query = query.filter_by(status=status_filter)
-    bookings = query.all()
-
-    stats = {
-        "total": Booking.query.count(),
-        "pending": Booking.query.filter_by(status="pending").count(),
-        "confirmed": Booking.query.filter_by(status="confirmed").count(),
-        "rejected": Booking.query.filter_by(status="rejected").count(),
-        "subscribers": NewsletterSubscriber.query.filter_by(active=True).count(),
-    }
     return render_template(
         "admin.html",
-        bookings=bookings,
-        stats=stats,
+        bookings=query.all(),
+        stats=get_stats(),
         status_filter=status_filter,
         stripe_enabled=STRIPE_ENABLED,
     )
@@ -503,21 +555,103 @@ def admin_newsletter():
     subscribers = NewsletterSubscriber.query.order_by(
         NewsletterSubscriber.subscribed_at.desc()
     ).all()
-    stats = {
-        "total": Booking.query.count(),
-        "pending": Booking.query.filter_by(status="pending").count(),
-        "confirmed": Booking.query.filter_by(status="confirmed").count(),
-        "rejected": Booking.query.filter_by(status="rejected").count(),
-        "subscribers": NewsletterSubscriber.query.filter_by(active=True).count(),
-    }
     return render_template(
         "admin.html",
         bookings=[],
-        stats=stats,
+        stats=get_stats(),
         subscribers=subscribers,
         status_filter="",
         stripe_enabled=STRIPE_ENABLED,
     )
+
+
+# ─── Admin: tariffe ───────────────────────────────────────────────────────────
+
+
+@app.route("/gestione/rates")
+@login_required
+def admin_rates():
+    rates = RoomRate.query.order_by(RoomRate.date_from.asc()).all()
+    return render_template(
+        "admin.html",
+        bookings=[],
+        stats=get_stats(),
+        rates=rates,
+        status_filter="",
+        stripe_enabled=STRIPE_ENABLED,
+        default_double=STRIPE_PRICE_DOUBLE,
+        default_single=STRIPE_PRICE_SINGLE,
+    )
+
+
+@app.route("/gestione/rates/add", methods=["POST"])
+@login_required
+def admin_add_rate():
+    try:
+        room = request.form.get("room")
+        if room not in ("double", "single", "both"):
+            abort(400)
+        date_from = date.fromisoformat(request.form.get("date_from", ""))
+        date_to = date.fromisoformat(request.form.get("date_to", ""))
+        if date_to <= date_from:
+            abort(400)
+        price_cents = round(float(request.form.get("price_eur", "0").replace(",", ".")) * 100)
+        label = (request.form.get("label") or "").strip() or None
+    except (ValueError, TypeError):
+        abort(400)
+
+    db.session.add(
+        RoomRate(room=room, date_from=date_from, date_to=date_to,
+                 price_cents=price_cents, label=label)
+    )
+    db.session.commit()
+    return redirect(url_for("admin_rates"))
+
+
+@app.route("/gestione/rates/<int:rate_id>/delete", methods=["POST"])
+@login_required
+def admin_delete_rate(rate_id):
+    rate = RoomRate.query.get_or_404(rate_id)
+    db.session.delete(rate)
+    db.session.commit()
+    return redirect(url_for("admin_rates"))
+
+
+# ─── API pubblica: prezzo stimato ─────────────────────────────────────────────
+
+
+@app.route("/api/price")
+def get_price():
+    """
+    Restituisce il prezzo totale stimato per una camera e un periodo.
+    Usato dal frontend per mostrare il totale prima di inviare la richiesta.
+
+    Query params: room, check_in (YYYY-MM-DD), check_out (YYYY-MM-DD)
+    """
+    room = request.args.get("room")
+    if room not in ("double", "single"):
+        return jsonify({"error": "room non valida"}), 400
+    try:
+        check_in = date.fromisoformat(request.args.get("check_in", ""))
+        check_out = date.fromisoformat(request.args.get("check_out", ""))
+    except ValueError:
+        return jsonify({"error": "Date non valide"}), 400
+    if check_out <= check_in:
+        return jsonify({"error": "check_out deve essere dopo check_in"}), 400
+
+    # Oggetto temporaneo per riutilizzare calculate_booking_price
+    class _FakeBooking:
+        pass
+    b = _FakeBooking()
+    b.room, b.check_in, b.check_out = room, check_in, check_out
+    b.nights = (check_out - check_in).days
+
+    total_cents = calculate_booking_price(b)
+    return jsonify({
+        "total_cents": total_cents,
+        "total_eur": f"€{total_cents / 100:.2f}",
+        "nights": b.nights,
+    })
 
 
 # ─── Init DB ──────────────────────────────────────────────────────────────────

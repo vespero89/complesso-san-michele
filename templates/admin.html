@@ -270,6 +270,53 @@ tr:hover td { background: rgba(43,38,32,0.02); }
   border-bottom: 1px solid var(--line);
 }
 
+/* ─── Tariffe ────────────────────────────────────────────── */
+.rates-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 32px;
+  align-items: start;
+}
+.add-rate-form {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 80px;
+}
+.add-rate-form h3 { font-size: 22px; margin-bottom: 4px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-field { display: flex; flex-direction: column; gap: 6px; }
+.form-field label {
+  font-size: 10px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--muted);
+}
+.form-field input,
+.form-field select {
+  font-family: var(--sans); font-size: 13px;
+  padding: 10px 12px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--ink); outline: none;
+  transition: border-color .15s;
+}
+.form-field input:focus,
+.form-field select:focus { border-color: var(--ocra); }
+.default-prices {
+  font-size: 11px; color: var(--muted);
+  padding: 10px 12px; background: var(--bg-2);
+  border-left: 2px solid var(--ocra); line-height: 1.8;
+}
+.td-price { font-family: var(--serif); font-size: 16px; color: var(--ocra); }
+.btn-delete {
+  font-size: 11px; padding: 4px 10px;
+  background: transparent; color: var(--red);
+  border: 1px solid rgba(192,57,43,0.3); letter-spacing: 0.06em;
+  transition: all .15s;
+}
+.btn-delete:hover { background: var(--red); color: white; border-color: var(--red); }
+
 /* ─── Responsive ─────────────────────────────────────────── */
 @media (max-width: 900px) {
   .stats { grid-template-columns: repeat(3, 1fr); }
@@ -293,6 +340,10 @@ tr:hover td { background: rgba(43,38,32,0.02); }
     <a href="{{ url_for('admin_dashboard') }}"
        class="{{ 'active' if request.endpoint == 'admin_dashboard' else '' }}">
       Prenotazioni
+    </a>
+    <a href="{{ url_for('admin_rates') }}"
+       class="{{ 'active' if request.endpoint == 'admin_rates' else '' }}">
+      Tariffe
     </a>
     <a href="{{ url_for('admin_newsletter') }}"
        class="{{ 'active' if request.endpoint == 'admin_newsletter' else '' }}">
@@ -435,6 +486,100 @@ tr:hover td { background: rgba(43,38,32,0.02); }
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  {# ─── Sezione tariffe ─── #}
+  {% elif rates is defined %}
+
+  <h2 class="section-title">Tariffe per camera</h2>
+
+  <div class="rates-layout">
+
+    {# Tabella tariffe esistenti #}
+    <div class="bookings-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Camera</th>
+            <th>Dal</th>
+            <th>Al (escluso)</th>
+            <th>€ / notte</th>
+            <th>Etichetta</th>
+            <th>Azione</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rates %}
+          <tr>
+            <td><span class="td-room-{{ r.room if r.room != 'both' else 'double' }}">{{ r.room_label }}</span></td>
+            <td class="td-dates">{{ r.date_from.strftime('%d/%m/%Y') }}</td>
+            <td class="td-dates">{{ r.date_to.strftime('%d/%m/%Y') }}</td>
+            <td class="td-price">{{ r.price_eur }}</td>
+            <td class="td-notes">{{ r.label or '—' }}</td>
+            <td>
+              <form method="POST" action="{{ url_for('admin_delete_rate', rate_id=r.id) }}">
+                <button type="submit" class="btn-delete"
+                        onclick="return confirm('Eliminare questa tariffa?')">
+                  Elimina
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="empty-state">
+              Nessuna tariffa configurata — viene usato il prezzo di default dal .env.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {# Form aggiungi tariffa #}
+    <div class="add-rate-form">
+      <h3>Aggiungi tariffa</h3>
+      <div class="default-prices">
+        Prezzi di default (da .env):<br>
+        Matrimoniale: €{{ "%.2f"|format(default_double / 100) }} / notte<br>
+        Singola: €{{ "%.2f"|format(default_single / 100) }} / notte<br>
+        <em>Usati quando nessuna tariffa copre la data.</em>
+      </div>
+
+      <form method="POST" action="{{ url_for('admin_add_rate') }}">
+        <div class="form-field">
+          <label>Camera</label>
+          <select name="room">
+            <option value="double">Matrimoniale</option>
+            <option value="single">Singola</option>
+            <option value="both">Entrambe</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>Dal</label>
+            <input type="date" name="date_from" required />
+          </div>
+          <div class="form-field">
+            <label>Al (escluso)</label>
+            <input type="date" name="date_to" required />
+          </div>
+        </div>
+        <div class="form-field">
+          <label>Prezzo per notte (€)</label>
+          <input type="number" name="price_eur" min="0" step="0.01"
+                 placeholder="es. 95.00" required />
+        </div>
+        <div class="form-field">
+          <label>Etichetta (opzionale)</label>
+          <input type="text" name="label" placeholder="es. Estate 2025" />
+        </div>
+        <button type="submit" class="btn-save" style="width:100%;padding:12px;">
+          Aggiungi tariffa
+        </button>
+      </form>
+    </div>
+
   </div>
 
   {# ─── Sezione newsletter ─── #}
