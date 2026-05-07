@@ -11,10 +11,13 @@ Tre sezioni: **Chiesa** (centro polifunzionale), **Laboratorio** (studio di arte
 2. [Come testare in locale](#come-testare-in-locale)
 3. [Deploy in produzione (Docker)](#deploy-in-produzione-docker)
 4. [Gestione admin](#gestione-admin)
-5. [Attivare i pagamenti Stripe](#attivare-i-pagamenti-stripe)
-6. [Aggiungere le foto](#aggiungere-le-foto)
-7. [Raccomandazioni di sicurezza](#raccomandazioni-di-sicurezza)
-8. [Sviluppi futuri](#sviluppi-futuri)
+5. [Flusso di prenotazione](#flusso-di-prenotazione)
+6. [Email automatiche](#email-automatiche)
+7. [Tariffe dinamiche](#tariffe-dinamiche)
+8. [Attivare i pagamenti Stripe](#attivare-i-pagamenti-stripe)
+9. [Aggiungere le foto](#aggiungere-le-foto)
+10. [Raccomandazioni di sicurezza](#raccomandazioni-di-sicurezza)
+11. [Sviluppi futuri](#sviluppi-futuri)
 
 ---
 
@@ -30,7 +33,8 @@ complesso-san-michele/
 │
 ├── templates/              # Template Jinja2 (solo pannello admin)
 │   ├── login.html          # Pagina di login admin
-│   └── admin.html          # Dashboard prenotazioni + newsletter
+│   ├── admin.html          # Dashboard prenotazioni + tariffe + newsletter
+│   └── action_result.html  # Risposta a conferma/rifiuto via email
 │
 └── project/                # Frontend statico (React SPA)
     ├── Complesso San Michele.html   # Entry point del sito
@@ -47,18 +51,20 @@ complesso-san-michele/
 ```
 Browser
   │
-  ├── GET /                → Flask serve project/Complesso San Michele.html
-  ├── GET /styles.css      → Flask serve project/styles.css
-  ├── GET /app.jsx         → Flask serve project/app.jsx  (idem altri file statici)
+  ├── GET /                     → Flask serve project/Complesso San Michele.html
+  ├── GET /styles.css           → Flask serve project/styles.css
+  ├── GET /app.jsx              → Flask serve project/app.jsx
   │
-  ├── GET  /api/unavailable   → date occupate (calendario Dimora)
-  ├── POST /api/bookings      → nuova richiesta prenotazione
-  ├── POST /api/newsletter    → iscrizione newsletter
+  ├── GET  /api/unavailable     → date occupate (calendario Dimora)
+  ├── GET  /api/price           → stima prezzo soggiorno
+  ├── POST /api/bookings        → nuova richiesta prenotazione → email admin
+  ├── POST /api/newsletter      → iscrizione newsletter
   │
   ├── POST /api/bookings/{id}/checkout  → sessione Stripe (se abilitato)
   ├── POST /api/webhooks/stripe          → webhook pagamento Stripe
   │
-  └── /gestione/*          → pannello admin (Flask-Login richiesto)
+  ├── GET  /gestione/action     → conferma/rifiuta da email (token HMAC, no login)
+  └── /gestione/*               → pannello admin (Flask-Login richiesto)
 ```
 
 ---
@@ -73,7 +79,7 @@ Browser
 ### 1. Clona il repo e crea l'ambiente virtuale
 
 ```bash
-git clone https://github.com/TUO-UTENTE/complesso-san-michele.git
+git clone https://github.com/vespero89/complesso-san-michele.git
 cd complesso-san-michele
 
 python3 -m venv venv
@@ -114,6 +120,7 @@ Il pannello admin su **http://localhost:5000/gestione**
 | `http://localhost:5000/gestione` | Redirect al login |
 | `http://localhost:5000/gestione/login` | Pagina di login |
 | `http://localhost:5000/api/unavailable?room=double` | JSON con date occupate |
+| `http://localhost:5000/api/price?room=double&check_in=2025-08-01&check_out=2025-08-05` | Stima prezzo |
 
 ---
 
@@ -271,17 +278,20 @@ Il pannello admin è accessibile all'URL **`/gestione`** (non `/admin`, per ridu
 
 | URL | Funzione |
 |-----|----------|
-| `/gestione/login` | Pagina di login |
+| `/gestione/login` | Pagina di login (rate-limited: 5 tentativi/min per IP) |
 | `/gestione` | Dashboard prenotazioni |
+| `/gestione/rates` | Gestione tariffe dinamiche |
 | `/gestione/newsletter` | Lista iscritti newsletter |
+| `/gestione/action?token=…` | Conferma/rifiuta da link email (no login, token HMAC) |
 | `/gestione/logout` | Logout |
 
 ### Gestione prenotazioni
 
 1. Accedi con username e password
 2. Nella tabella vedi tutte le richieste con stato **In attesa / Confermata / Rifiutata / Annullata**
-3. Usa il menu a tendina + "Salva" per cambiare lo stato
+3. Usa il menu a tendina + "Salva" per cambiare lo stato manualmente
 4. Usa i filtri in alto per vedere solo le prenotazioni di uno stato specifico
+5. Ogni cambio di stato invia automaticamente un'email all'ospite (se `MAIL_ENABLED=true`)
 
 ### Cambiare la password admin
 
@@ -290,18 +300,152 @@ Il pannello admin è accessibile all'URL **`/gestione`** (non `/admin`, per ridu
 python3 -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('NUOVA-PASSWORD'))"
 
 # Aggiorna il .env sul server
-nano /var/www/csm/.env
+nano /srv/csm/.env
 # → aggiorna ADMIN_PASSWORD_HASH
 
-# Riavvia il servizio
-sudo systemctl restart csm
+# Riavvia il container
+cd /srv/csm && docker compose restart
 ```
+
+---
+
+## Flusso di prenotazione
+
+### Flusso attuale (senza pagamento online)
+
+```
+Ospite compila il form Dimora
+        │
+        ▼
+POST /api/bookings
+  → Prenotazione salvata con status = "pending"
+  → Email all'admin con dettagli e due pulsanti:
+        [✓ Conferma]   [✕ Rifiuta]
+        │
+        ▼ (admin clicca da email, nessun login richiesto)
+GET /gestione/action?token=<HMAC-firmato>
+  → Token verificato (HMAC-SHA256, valido 7 giorni)
+  → Status aggiornato a "confirmed" o "rejected"
+  → Email all'ospite con l'esito
+  → Pagina di conferma all'admin con dettagli prenotazione
+```
+
+I token d'azione sono **firmati con HMAC-SHA256** usando `SECRET_KEY` e contengono un timestamp: scadono dopo 7 giorni e non possono essere falsificati. Cliccare più volte lo stesso link è sicuro: la pagina mostrerà "già elaborata" senza modificare nulla.
+
+In alternativa all'email, l'admin può gestire tutto dal pannello `/gestione` (cambio stato manuale con menu a tendina).
+
+### Flusso futuro (con pagamento online Stripe)
+
+> Attivabile impostando `STRIPE_ENABLED=true` nel `.env`. Il codice è già integrato.
+
+```
+Ospite compila il form Dimora
+        │
+        ▼
+POST /api/bookings
+  → Prenotazione salvata con status = "pending"
+  → Email all'admin (solo notifica, nessun pulsante conferma/rifiuta)
+        │
+        ▼ (l'admin accetta la prenotazione dal pannello)
+POST /api/bookings/{id}/checkout
+  → Stripe crea una sessione di pagamento
+  → Ospite viene reindirizzato alla pagina di pagamento Stripe
+        │
+        ▼ (ospite completa il pagamento)
+POST /api/webhooks/stripe  ← Stripe notifica il server
+  → payment_status aggiornato a "paid"
+  → status aggiornato a "confirmed"
+  → Email di conferma all'ospite
+```
+
+Nel flusso Stripe il prezzo è calcolato notte per notte usando le **tariffe dinamiche** (vedi sezione apposita), con fallback ai prezzi fissi in `.env`.
+
+---
+
+## Email automatiche
+
+Le email sono gestite internamente con `smtplib` (STARTTLS). Provider consigliato: **Brevo** (ex Sendinblue), gratuito fino a 300 email/giorno.
+
+### Abilitare le email
+
+Nel `.env`:
+
+```env
+MAIL_ENABLED=true
+MAIL_FROM=info@complessosanmichele-offida.it
+ADMIN_EMAIL=info@complessosanmichele-offida.it
+
+# Credenziali Brevo (registrati su brevo.com → SMTP & API)
+MAIL_SMTP_HOST=smtp.brevo.com
+MAIL_SMTP_PORT=587
+MAIL_USERNAME=la-tua-email@esempio.it
+MAIL_PASSWORD=la-tua-smtp-key-brevo
+```
+
+Con `MAIL_ENABLED=false` (default), le email vengono solo stampate nei log del container — utile in sviluppo per vedere il contenuto senza configurare un server SMTP.
+
+### Cosa viene inviato e quando
+
+| Evento | Destinatario | Contenuto |
+|--------|-------------|-----------|
+| Nuova prenotazione ricevuta | Admin | Dettagli ospite + camera + date + pulsanti [Conferma] [Rifiuta] con link firmati |
+| Prenotazione confermata | Ospite | Conferma con dettagli soggiorno e invito a contattare per info |
+| Prenotazione rifiutata | Ospite | Comunicazione con invito a ricontattare per alternative |
+
+### Configurazione alternativa con Gmail
+
+```env
+MAIL_SMTP_HOST=smtp.gmail.com
+MAIL_SMTP_PORT=587
+MAIL_USERNAME=tuoemail@gmail.com
+MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx   # App Password (non la password Google)
+```
+
+Per generare un'App Password Gmail: `account.google.com → Sicurezza → Verifica in due passaggi → Password per le app`.  
+Gmail è meno consigliato per produzione per via dei limiti di invio e delle policy anti-spam.
+
+---
+
+## Tariffe dinamiche
+
+I prezzi per notte non sono fissi: si possono configurare per camera e periodo dall'interfaccia admin in `/gestione/rates`.
+
+### Come funziona
+
+Le tariffe sono salvate nel modello `RoomRate` (tabella nel database) con questi campi:
+
+| Campo | Descrizione |
+|-------|-------------|
+| `room` | `double` \| `single` \| `both` (entrambe le camere) |
+| `date_from` / `date_to` | Periodo di validità |
+| `price_cents` | Prezzo per notte in centesimi (es. `9500` = €95,00) |
+| `label` | Etichetta descrittiva (es. "Alta stagione luglio-agosto") |
+
+**Priorità**: se più tariffe coprono la stessa notte, vince quella con `date_from` più recente (cioè la più specifica). Se non c'è nessuna tariffa per una notte, si usa il fallback da `.env` (`STRIPE_PRICE_DOUBLE_CENTS` / `STRIPE_PRICE_SINGLE_CENTS`).
+
+### Gestione dall'admin
+
+Dalla sezione **Tariffe** del pannello `/gestione/rates`:
+- Aggiungi una nuova tariffa con camera, periodo, prezzo e label
+- Visualizza tutte le tariffe attive ordinate per data
+- Elimina una tariffa (la notte tornerà al prezzo di fallback)
+
+### Prezzi di fallback
+
+Nel `.env`, configurano il prezzo per notte quando non c'è nessuna `RoomRate` che copre quella data:
+
+```env
+STRIPE_PRICE_DOUBLE_CENTS=8000   # €80,00 per notte — matrimoniale
+STRIPE_PRICE_SINGLE_CENTS=6000   # €60,00 per notte — singola
+```
+
+Questi valori sono usati anche per la stima prezzo (`/api/price`) e per il checkout Stripe.
 
 ---
 
 ## Attivare i pagamenti Stripe
 
-Stripe è già integrato nel codice, disabilitato di default.
+Stripe è già integrato nel codice. Con `STRIPE_ENABLED=false` (default), il flusso di prenotazione usa la conferma manuale via email (vedi [Flusso di prenotazione](#flusso-di-prenotazione)). Attivando Stripe, il pagamento online diventa parte del flusso di conferma.
 
 ### Passo 1 — Crea un account Stripe
 
@@ -319,9 +463,9 @@ Dalla dashboard Stripe:
 - Evento da ascoltare: `checkout.session.completed`
 - Copia il **Signing secret** in `STRIPE_WEBHOOK_SECRET`
 
-### Passo 4 — Imposta i prezzi
+### Passo 4 — Imposta i prezzi di fallback
 
-Nel `.env`, imposta il prezzo per notte in **centesimi di euro**:
+Nel `.env`, imposta il prezzo per notte in **centesimi di euro** (usato quando non ci sono tariffe dinamiche):
 
 ```env
 STRIPE_PRICE_DOUBLE_CENTS=8000   # €80,00 per notte — matrimoniale
@@ -334,7 +478,7 @@ STRIPE_PRICE_SINGLE_CENTS=6000   # €60,00 per notte — singola
 STRIPE_ENABLED=true
 ```
 
-Riavvia il servizio. Da questo momento, dopo ogni prenotazione il frontend riceve l'URL del checkout Stripe. Il webhook conferma il pagamento e aggiorna automaticamente lo stato della prenotazione a `confirmed`.
+Riavvia il servizio (`docker compose up -d --build`). Da questo momento, dopo ogni prenotazione il frontend può avviare il checkout Stripe. Il webhook conferma il pagamento e aggiorna automaticamente lo stato a `confirmed`.
 
 ### Test in locale con Stripe CLI
 
@@ -360,7 +504,7 @@ Le foto del sito sono gestite tramite **drag & drop** direttamente nel browser (
 Per renderle permanenti sul server, copia il file stato sul VPS:
 
 ```bash
-scp project/.image-slots.state.json user@IP-VPS:/var/www/csm/project/
+scp project/.image-slots.state.json user@IP-VPS:/srv/csm/project/
 ```
 
 ### Sostituire le foto di sfondo hardcoded
@@ -389,23 +533,13 @@ Per cambiare opacità e contrasto delle merlettaie, edita `project/styles.css`:
 - [ ] **`SECRET_KEY` lunga e casuale** — genera con `python3 -c "import secrets; print(secrets.token_hex(32))"`
 - [ ] **`ADMIN_PASSWORD_HASH`** — mai usare `ADMIN_PASSWORD` in produzione
 - [ ] **`.env` fuori dal repo** — verificare che `.gitignore` includa `.env`
-- [ ] **`csm.db` fuori dal web root** — il path di default è nella root del progetto, non servita da Nginx
+- [ ] **`csm.db` nel volume Docker** — `docker-compose.yml` già lo posiziona in `/app/data/`, non nella web root
 
 ### Fortemente consigliate
 
-- [ ] **Backup automatico del database** — crontab giornaliero su `csm.db`:
-  ```bash
-  0 3 * * * cp /var/www/csm/csm.db /var/backups/csm/csm-$(date +\%Y\%m\%d).db
-  ```
-- [ ] **Limitare accesso admin per IP** — se hai un IP fisso, in Nginx:
-  ```nginx
-  location /gestione {
-      allow TUO.IP.FISSO.QUI;
-      deny all;
-      proxy_pass http://127.0.0.1:5000;
-  }
-  ```
-- [ ] **Fail2ban** — protegge da brute force a livello di server
+- [ ] **Backup automatico del database** — crontab giornaliero (vedi [Backup del database](#backup-del-database))
+- [ ] **Limitare accesso admin per IP** — se hai un IP fisso, configura in NPM una regola di accesso per `/gestione`
+- [ ] **Fail2ban** — protegge da brute force a livello di sistema operativo (complementare al rate limiting Flask)
 - [ ] **Rate limiting già attivo** — Flask-Limiter blocca 5 tentativi di login al minuto per IP
 
 ### Non necessarie per questa scala
@@ -418,33 +552,13 @@ Per cambiare opacità e contrasto delle merlettaie, edita `project/styles.css`:
 
 Il codice è strutturato per aggiungere funzionalità senza riscrivere nulla.
 
-### Email di conferma automatica
+### Upload immagini dall'admin
 
-Quando una prenotazione viene confermata (manualmente o via Stripe), inviare un'email all'ospite.
-
-Stack consigliato: **Brevo** (ex Sendinblue) — gratuito fino a 300 email/giorno, API semplice.
-
-```python
-# In app.py, dopo booking.status = "confirmed":
-import requests
-requests.post("https://api.brevo.com/v3/smtp/email", headers={...}, json={
-    "to": [{"email": booking.email, "name": booking.name}],
-    "subject": "Prenotazione confermata — Complesso San Michele",
-    "htmlContent": f"<p>Ciao {booking.name}, la tua prenotazione è confermata...</p>"
-})
-```
-
-### Notifica email al proprietario per nuove richieste
-
-Stesso meccanismo: al `POST /api/bookings`, invia un'email a `info@complessosanmichele-offida.it` con i dettagli della nuova richiesta.
+Aggiungere `POST /gestione/upload` per caricare le foto direttamente dal pannello admin, senza usare drag & drop o SCP manuale. Le immagini verrebbero salvate in `project/assets/` e referenziate nel frontend.
 
 ### Più operatori / ruoli
 
 Se in futuro serviranno più account (es. receptionist), aggiungere una tabella `users` con campo `role` e sostituire il singleton `AdminUser` con Flask-Login completo. Il resto dell'architettura non cambia.
-
-### Prezzi dinamici per camera
-
-Aggiungere una tabella `RoomRate` (camera, data_inizio, data_fine, prezzo_per_notte) e usarla nel calcolo del checkout Stripe al posto delle variabili d'ambiente fisse.
 
 ### Migrazione da SQLite a PostgreSQL
 
