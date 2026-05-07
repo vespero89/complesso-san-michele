@@ -13,6 +13,7 @@ Output: dist/Complesso San Michele.html
 
 import argparse
 import base64
+import json
 import mimetypes
 import re
 from pathlib import Path
@@ -64,11 +65,33 @@ def build(output_name: str):
         f"<style>\n{css_inlined}\n</style>",
     )
 
+    # Inject image-slot state (monkey-patch fetch so image-slot.js finds the data
+    # without needing to load .image-slots.state.json from the filesystem —
+    # file:// fetch is blocked by Chrome's CORS policy for local files)
+    state_file = PROJECT / ".image-slots.state.json"
+    if state_file.exists():
+        state_json = state_file.read_text(encoding="utf-8")
+        fetch_patch = (
+            "<script>\n"
+            "(function(){\n"
+            f"  const __slots = {state_json};\n"
+            "  const _fetch = window.fetch.bind(window);\n"
+            "  window.fetch = function(url, ...a) {\n"
+            "    if (typeof url === 'string' && url.includes('.image-slots.state.json'))\n"
+            "      return Promise.resolve(new Response(JSON.stringify(__slots), {status:200}));\n"
+            "    return _fetch(url, ...a);\n"
+            "  };\n"
+            "})();\n"
+            "</script>\n"
+        )
+    else:
+        fetch_patch = ""
+
     # Inline image-slot.js
     image_slot = (PROJECT / "image-slot.js").read_text(encoding="utf-8")
     html = html.replace(
         '<script src="image-slot.js"></script>',
-        f"<script>\n{image_slot}\n</script>",
+        f"{fetch_patch}<script>\n{image_slot}\n</script>",
     )
 
     # Inline app.jsx (keep type="text/babel" so Babel CDN can transpile it)
@@ -82,7 +105,10 @@ def build(output_name: str):
     out = DIST / output_name
     out.write_text(html, encoding="utf-8")
     size_kb = out.stat().st_size / 1024
+    slot_count = len(json.loads(state_file.read_text())) if state_file.exists() else 0
     print(f"✓ Generato: {out}  ({size_kb:.0f} KB)")
+    if slot_count:
+        print(f"  Immagini iniettate dagli slot: {slot_count}")
     print("  Nota: richiede connessione internet per React, Babel e Google Fonts (CDN).")
     print("  Le API di prenotazione non funzionano senza il backend Flask.")
 
