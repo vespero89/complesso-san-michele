@@ -1,13 +1,6 @@
 // Complesso San Michele — App root + router
 // Components loaded from components/ via HTML script tags
 
-const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "merlettaieOpacity": 0.10,
-  "merlettaieContrast": 0.7,
-  "veilStrength": 0.55,
-  "veilDark": 0.75
-} /*EDITMODE-END*/;
-
 function App() {
   const [lang, setLang] = React.useState(localStorage.getItem("csm-lang") || "it");
   const [page, setPage] = React.useState(window.location.hash.replace("#", "") || "home");
