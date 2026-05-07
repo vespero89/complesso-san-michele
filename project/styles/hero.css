@@ -18,7 +18,7 @@
 }
 .hero-merlettaie {
   position: absolute; inset: 0;
-  background-image: url("assets/merlettaie.jpeg");
+  background-image: url("../assets/merlettaie.jpeg");
   background-size: cover;
   background-position: center;
   opacity: 0.36;
