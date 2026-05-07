@@ -23,7 +23,7 @@ Sito vetrina + backend prenotazioni B&B. Flask SPA.
 
 ## API pubbliche
 - `GET  /api/unavailable?room=double&from=YYYY-MM-DD&to=YYYY-MM-DD`
-- `POST /api/bookings` — crea prenotazione
+- `POST /api/bookings` — crea prenotazione (→ email admin con link conferma/rifiuta)
 - `POST /api/newsletter` — iscrizione
 - `GET  /api/price?room=double&check_in=...&check_out=...` — stima prezzo
 
@@ -31,6 +31,13 @@ Sito vetrina + backend prenotazioni B&B. Flask SPA.
 - URL: `/gestione` (non /admin — oscurato)
 - Sezioni: Prenotazioni / Tariffe / Newsletter
 - Rate limiting: 5 tentativi login/minuto per IP
+- `GET /gestione/action?token=...` — conferma/rifiuta da email (no login, token HMAC)
+
+## Email automatiche
+- Nuova prenotazione → email admin con pulsanti [Conferma] [Rifiuta] (token firmato HMAC, valido 7gg)
+- Admin conferma/rifiuta (da email o dashboard) → email ospite con esito
+- Config: `MAIL_ENABLED=true` + credenziali SMTP nel `.env` (consigliato: Brevo)
+- Con `MAIL_ENABLED=false` (default): log su console, nessuna email
 
 ## Avvio locale
 ```bash
@@ -42,6 +49,7 @@ docker compose up -d --build
 ## TODO / sviluppi futuri noti
 - [ ] Sostituire image-slot con img statici (foto reali da caricare in project/assets/)
 - [ ] Upload immagini dall'admin (POST /gestione/upload)
-- [ ] Email automatica al proprietario su nuova prenotazione
-- [ ] Email di conferma all'ospite quando status → confirmed
+- [x] Email automatica al proprietario su nuova prenotazione (con link conferma/rifiuta)
+- [x] Email di conferma/rifiuto all'ospite
 - [ ] Attivare Stripe (STRIPE_ENABLED=true nel .env)
+- [ ] Attivare email (MAIL_ENABLED=true + credenziali Brevo nel .env)

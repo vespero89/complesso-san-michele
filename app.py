@@ -12,9 +12,16 @@ Avvio rapido:
     # Pannello admin: http://localhost:5000/gestione
 """
 
+import base64
+import hashlib
+import hmac
 import os
 import secrets
+import smtplib
+import time
 from datetime import date, datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from functools import wraps
 
 import stripe
@@ -120,6 +127,18 @@ if STRIPE_ENABLED:
 
 STRIPE_PRICE_DOUBLE = int(os.getenv("STRIPE_PRICE_DOUBLE_CENTS", "8000"))
 STRIPE_PRICE_SINGLE = int(os.getenv("STRIPE_PRICE_SINGLE_CENTS", "6000"))
+
+# ─── Email ─────────────────────────────────────────────────────────────────────
+
+MAIL_ENABLED   = os.getenv("MAIL_ENABLED", "false").lower() == "true"
+MAIL_FROM      = os.getenv("MAIL_FROM", "noreply@complessosanmichele-offida.it")
+MAIL_SMTP_HOST = os.getenv("MAIL_SMTP_HOST", "smtp.brevo.com")
+MAIL_SMTP_PORT = int(os.getenv("MAIL_SMTP_PORT", "587"))
+MAIL_USERNAME  = os.getenv("MAIL_USERNAME", "")
+MAIL_PASSWORD  = os.getenv("MAIL_PASSWORD", "")
+ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL", "info@complessosanmichele-offida.it")
+
+ACTION_TOKEN_TTL = 7 * 24 * 3600  # link validi 7 giorni
 
 # ─── Modelli ───────────────────────────────────────────────────────────────────
 
@@ -259,6 +278,186 @@ def calculate_booking_price(booking):
     return total
 
 
+# ─── Action token (conferma/rifiuta da email) ─────────────────────────────────
+
+
+def _token_sign(payload: str) -> str:
+    return hmac.new(
+        app.config["SECRET_KEY"].encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def make_action_token(booking_id: int, action: str) -> str:
+    """Crea un token firmato HMAC valido ACTION_TOKEN_TTL secondi."""
+    ts = str(int(time.time()))
+    payload = f"{booking_id}:{action}:{ts}"
+    token = f"{payload}:{_token_sign(payload)[:24]}"
+    return base64.urlsafe_b64encode(token.encode()).decode().rstrip("=")
+
+
+def verify_action_token(token: str):
+    """
+    Verifica il token e restituisce (booking_id, action).
+    Solleva ValueError se invalido o scaduto.
+    """
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode()).decode()
+        bid_s, action, ts_s, sig = raw.split(":", 3)
+        booking_id, ts = int(bid_s), int(ts_s)
+    except Exception:
+        raise ValueError("Link non valido.")
+    payload = f"{booking_id}:{action}:{ts_s}"
+    if not hmac.compare_digest(_token_sign(payload)[:24], sig):
+        raise ValueError("Link non valido.")
+    if time.time() - ts > ACTION_TOKEN_TTL:
+        raise ValueError("Link scaduto (valido 7 giorni).")
+    if action not in ("confirm", "reject"):
+        raise ValueError("Azione non valida.")
+    return booking_id, action
+
+
+# ─── Email helpers ─────────────────────────────────────────────────────────────
+
+
+def send_email(to: str, subject: str, html: str) -> None:
+    if not MAIL_ENABLED:
+        app.logger.info(f"[MAIL disabled] → {to} | {subject}")
+        return
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = MAIL_FROM
+        msg["To"]      = to
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with smtplib.SMTP(MAIL_SMTP_HOST, MAIL_SMTP_PORT, timeout=10) as srv:
+            srv.ehlo()
+            srv.starttls()
+            srv.login(MAIL_USERNAME, MAIL_PASSWORD)
+            srv.sendmail(MAIL_FROM, [to], msg.as_string())
+    except Exception as exc:
+        app.logger.error(f"Email send failed → {to}: {exc}")
+
+
+def _email_wrap(title: str, body: str) -> str:
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:24px;background:#f5efe2;font-family:Arial,sans-serif;">
+<div style="max-width:560px;margin:0 auto;">
+  <div style="background:#2b2620;padding:20px 28px;">
+    <span style="font-family:Georgia,serif;font-size:20px;color:#faf6ec;">
+      ✦ Complesso San Michele — Offida
+    </span>
+  </div>
+  <div style="background:#faf6ec;border:1px solid rgba(43,38,32,.12);
+              border-top:none;padding:32px 28px;">
+    <h2 style="font-family:Georgia,serif;font-size:26px;color:#2b2620;margin:0 0 20px;">
+      {title}
+    </h2>
+    {body}
+  </div>
+  <div style="padding:14px 0;font-size:11px;color:#6b6253;text-align:center;">
+    Complesso San Michele — Via San Michele, 63073 Offida (AP) —
+    <a href="mailto:{ADMIN_EMAIL}" style="color:#b8923d;">{ADMIN_EMAIL}</a>
+  </div>
+</div></body></html>"""
+
+
+def _booking_rows(b) -> str:
+    rows = [
+        ("Ospite",    f"{b.name} &lt;{b.email}&gt;"),
+        ("Camera",    b.room_label),
+        ("Check-in",  b.check_in.strftime("%d/%m/%Y")),
+        ("Check-out", b.check_out.strftime("%d/%m/%Y")),
+        ("Notti",     str(b.nights)),
+        ("Ospiti",    str(b.guests)),
+    ]
+    if b.phone:
+        rows.insert(1, ("Telefono", b.phone))
+    if b.notes:
+        rows.append(("Note", b.notes))
+    cells = "".join(
+        f'<tr>'
+        f'<td style="padding:8px 12px;color:#6b6253;font-size:13px;'
+        f'background:#ebe3d0;border-bottom:1px solid rgba(43,38,32,.08);">{k}</td>'
+        f'<td style="padding:8px 12px;color:#2b2620;font-size:13px;font-weight:600;'
+        f'border-bottom:1px solid rgba(43,38,32,.08);">{v}</td>'
+        f'</tr>'
+        for k, v in rows
+    )
+    return f'<table style="width:100%;border-collapse:collapse;margin:0 0 24px;">{cells}</table>'
+
+
+def _btn(url: str, label: str, bg: str, color: str) -> str:
+    return (
+        f'<a href="{url}" style="display:inline-block;padding:14px 28px;'
+        f'background:{bg};color:{color};font-size:13px;font-weight:600;'
+        f'letter-spacing:.08em;text-transform:uppercase;text-decoration:none;'
+        f'margin-right:12px;">{label}</a>'
+    )
+
+
+def notify_admin_new_booking(booking) -> None:
+    """Email all'admin con pulsanti conferma/rifiuta firmati."""
+    confirm_url = f"{SITE_URL}/gestione/action?token={make_action_token(booking.id, 'confirm')}"
+    reject_url  = f"{SITE_URL}/gestione/action?token={make_action_token(booking.id, 'reject')}"
+
+    body = (
+        f"{_booking_rows(booking)}"
+        f'<p style="margin:0 0 20px;font-size:14px;color:#4a4135;">'
+        f'Rispondi direttamente da questa email oppure usa i pulsanti:</p>'
+        f'{_btn(confirm_url, "✅ Conferma", "#27623e", "#ffffff")}'
+        f'{_btn(reject_url,  "❌ Rifiuta",  "#c0392b", "#ffffff")}'
+        f'<p style="margin:20px 0 0;font-size:11px;color:#6b6253;">'
+        f'Link valido 7 giorni. Puoi anche gestire la prenotazione dal '
+        f'<a href="{SITE_URL}/gestione" style="color:#b8923d;">pannello admin</a>.</p>'
+    )
+    send_email(
+        ADMIN_EMAIL,
+        f"[CSM] Nuova richiesta — {booking.name} · {booking.check_in.strftime('%d/%m')}–{booking.check_out.strftime('%d/%m')}",
+        _email_wrap("Nuova richiesta di prenotazione", body),
+    )
+
+
+def notify_guest_status_change(booking) -> None:
+    """Email all'ospite quando la prenotazione viene confermata o rifiutata."""
+    if booking.status == "confirmed":
+        title = "Prenotazione confermata"
+        intro = (
+            f'<p style="font-size:16px;color:#2b2620;margin:0 0 20px;">'
+            f'Gentile <strong>{booking.name}</strong>, '
+            f'la tua prenotazione è <strong style="color:#27623e;">confermata</strong>. '
+            f'Ti aspettiamo!</p>'
+        )
+        closing = (
+            f'<p style="font-size:14px;color:#4a4135;margin:20px 0 0;">'
+            f'Per qualsiasi necessità scrivi a '
+            f'<a href="mailto:{ADMIN_EMAIL}" style="color:#b8923d;">{ADMIN_EMAIL}</a>.</p>'
+        )
+    elif booking.status == "rejected":
+        title = "Aggiornamento sulla tua richiesta"
+        intro = (
+            f'<p style="font-size:16px;color:#2b2620;margin:0 0 20px;">'
+            f'Gentile <strong>{booking.name}</strong>, ci dispiace: '
+            f'le date richieste non sono al momento disponibili.</p>'
+        )
+        closing = (
+            f'<p style="font-size:14px;color:#4a4135;margin:20px 0 0;">'
+            f'Scrivici a <a href="mailto:{ADMIN_EMAIL}" style="color:#b8923d;">{ADMIN_EMAIL}</a> '
+            f'per verificare date alternative — saremo felici di aiutarti.</p>'
+        )
+    else:
+        return  # non inviare email per altri stati
+
+    body = intro + _booking_rows(booking) + closing
+    send_email(
+        booking.email,
+        f"{'Prenotazione confermata' if booking.status == 'confirmed' else 'Aggiornamento prenotazione'} — Complesso San Michele",
+        _email_wrap(title, body),
+    )
+
+
 # ─── Serve frontend statico ────────────────────────────────────────────────────
 
 
@@ -367,6 +566,8 @@ def create_booking():
     )
     db.session.add(booking)
     db.session.commit()
+
+    notify_admin_new_booking(booking)   # email admin con link conferma/rifiuta
 
     response = booking.to_dict()
     response["stripe_enabled"] = STRIPE_ENABLED
@@ -480,6 +681,46 @@ def subscribe_newsletter():
     return jsonify({"message": "Iscrizione completata.", "id": sub.id}), 201
 
 
+# ─── Azione da email (token firmato, no login) ───────────────────────────────
+
+
+@app.route("/gestione/action")
+def booking_action():
+    """
+    Conferma o rifiuta una prenotazione tramite link firmato ricevuto via email.
+    Non richiede login: il token HMAC è l'autenticazione.
+    """
+    token = request.args.get("token", "")
+    try:
+        booking_id, action = verify_action_token(token)
+    except ValueError as exc:
+        return render_template("action_result.html", success=False, message=str(exc))
+
+    booking = Booking.query.get_or_404(booking_id)
+
+    # Idempotente: se già gestita mostra solo lo stato attuale
+    if booking.status in ("confirmed", "rejected", "cancelled"):
+        return render_template(
+            "action_result.html",
+            success=True,
+            already_done=True,
+            booking=booking,
+            action=action,
+        )
+
+    booking.status = "confirmed" if action == "confirm" else "rejected"
+    db.session.commit()
+    notify_guest_status_change(booking)  # email di conferma/rifiuto all'ospite
+
+    return render_template(
+        "action_result.html",
+        success=True,
+        already_done=False,
+        booking=booking,
+        action=action,
+    )
+
+
 # ─── Admin: login / logout ────────────────────────────────────────────────────
 
 
@@ -543,6 +784,7 @@ def update_booking_status(booking_id):
         abort(400)
     booking.status = new_status
     db.session.commit()
+    notify_guest_status_change(booking)  # email ospite se confirmed/rejected
     return redirect(url_for("admin_dashboard", status=request.args.get("status", "")))
 
 
