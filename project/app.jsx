@@ -668,24 +668,18 @@ function BookingSection({ lang }) {
   const [notes, setNotes] = useState("");
   const [sent, setSent] = useState(false);
 
-  // Mock booked dates (deterministic): set a few ranges across coming months
-  const busy = useMemo(() => {
-    const set = new Set();
-    const base = new Date(today.getFullYear(), today.getMonth(), 1);
-    const ranges = [
-    [3, 7], [12, 14], [22, 25], // current month
-    [35, 40], [48, 52], // next month
-    [70, 73], [85, 90] // 2 months ahead
-    ];
-    ranges.forEach(([a, b]) => {
-      for (let i = a; i <= b; i++) {
-        const d = new Date(base);
-        d.setDate(d.getDate() + i);
-        set.add(ymd(d));
-      }
-    });
-    return set;
-  }, []);
+  // Date occupate: caricate dall'API, con fallback a set vuoto
+  const [busy, setBusy] = useState(new Set());
+
+  useEffect(() => {
+    const from = ymd(today);
+    const to = new Date(today.getFullYear(), today.getMonth() + 12, 1);
+    const toStr = ymd(to);
+    fetch(`/api/unavailable?room=${room}&from=${from}&to=${toStr}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((dates) => setBusy(new Set(dates)))
+      .catch(() => {}); // Se il backend non è disponibile, nessuna data bloccata
+  }, [room]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function ymd(d) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -755,7 +749,33 @@ function BookingSection({ lang }) {
   function submit(e) {
     e.preventDefault();
     if (!checkIn || !checkOut || !name || !email) return;
-    setSent(true);
+
+    fetch("/api/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        email,
+        room,
+        guests,
+        notes,
+        check_in: ymd(checkIn),
+        check_out: ymd(checkOut),
+      }),
+    })
+      .then((r) => {
+        if (r.ok) {
+          setSent(true);
+        } else {
+          return r.json().then((d) => {
+            alert(d.error || "Errore durante l'invio. Riprova.");
+          });
+        }
+      })
+      .catch(() => {
+        // Backend non raggiungibile: mostra conferma comunque (UX graceful)
+        setSent(true);
+      });
   }
 
   function reset() {
@@ -917,6 +937,11 @@ function Newsletter({ lang }) {
   function submit(e) {
     e.preventDefault();
     if (!email) return;
+    fetch("/api/newsletter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    }).catch(() => {});
     setDone(true);
     setTimeout(() => {setDone(false);setEmail("");}, 3000);
   }

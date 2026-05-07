@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Accesso — Complesso San Michele</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #f5efe2;
+    --paper: #faf6ec;
+    --ink: #2b2620;
+    --ink-2: #4a4135;
+    --muted: #6b6253;
+    --ocra: #b8923d;
+    --ocra-2: #d4ae5b;
+    --line: rgba(43,38,32,0.15);
+    --red: #c0392b;
+    --serif: "Cormorant Garamond", Georgia, serif;
+    --sans: "Inter", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .login-wrap {
+    width: 100%;
+    max-width: 400px;
+    padding: 24px;
+  }
+
+  .login-brand {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .login-brand .mark {
+    display: block;
+    font-size: 36px;
+    color: var(--ocra);
+    margin-bottom: 12px;
+  }
+  .login-brand h1 {
+    font-family: var(--serif);
+    font-size: 28px;
+    font-weight: 400;
+    color: var(--paper);
+    margin: 0 0 6px;
+  }
+  .login-brand p {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(250,246,236,0.45);
+    margin: 0;
+  }
+
+  .login-card {
+    background: rgba(250, 246, 236, 0.05);
+    border: 1px solid rgba(212, 174, 91, 0.2);
+    padding: 36px 32px;
+  }
+
+  .login-card label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .login-card label span {
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(212,174,91,0.75);
+  }
+  .login-card input {
+    background: rgba(43,38,32,0.4);
+    border: 1px solid rgba(250,246,236,0.12);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-size: 14px;
+    padding: 12px 14px;
+    outline: none;
+    transition: border-color .15s;
+    width: 100%;
+  }
+  .login-card input::placeholder { color: rgba(250,246,236,0.25); }
+  .login-card input:focus { border-color: var(--ocra-2); }
+
+  .error-msg {
+    background: rgba(192,57,43,0.15);
+    border: 1px solid rgba(192,57,43,0.4);
+    color: #e88070;
+    font-size: 13px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+  }
+
+  .btn-login {
+    width: 100%;
+    margin-top: 8px;
+    padding: 14px;
+    background: var(--ocra);
+    color: var(--ink);
+    border: none;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .btn-login:hover { background: var(--ocra-2); }
+
+  .login-footer {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 11px;
+    color: rgba(250,246,236,0.2);
+    letter-spacing: 0.06em;
+  }
+  .login-footer a {
+    color: rgba(212,174,91,0.4);
+    text-decoration: none;
+    transition: color .2s;
+  }
+  .login-footer a:hover { color: var(--ocra-2); }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="login-brand">
+    <span class="mark">✦</span>
+    <h1>Complesso San Michele</h1>
+    <p>Pannello di gestione</p>
+  </div>
+
+  <div class="login-card">
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('admin_login') }}">
+      <label>
+        <span>Nome utente</span>
+        <input type="text" name="username" autocomplete="username" autofocus required />
+      </label>
+      <label>
+        <span>Password</span>
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="btn-login">Accedi</button>
+    </form>
+  </div>
+
+  <div class="login-footer">
+    <a href="/">← Torna al sito</a>
+  </div>
+</div>
+
+</body>
+</html>
