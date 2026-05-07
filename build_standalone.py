@@ -72,15 +72,41 @@ def make_fetch_patch(state_file: Path) -> str:
     )
 
 
+CSS_FILES = [
+    "styles/base.css",
+    "styles/header.css",
+    "styles/hero.css",
+    "styles/sections.css",
+    "styles/gallery.css",
+    "styles/rooms.css",
+    "styles/booking.css",
+    "styles/content.css",
+    "styles/lightbox.css",
+]
+
+COMPONENT_FILES = [
+    "components/shared.jsx",
+    "components/Header.jsx",
+    "components/Booking.jsx",
+    "components/Home.jsx",
+    "components/Chiesa.jsx",
+    "components/Laboratorio.jsx",
+    "components/Dimora.jsx",
+    "app.jsx",
+]
+
+
 def build_main(output_name: str):
     DIST.mkdir(exist_ok=True)
     html = (PROJECT / "Complesso San Michele.html").read_text(encoding="utf-8")
 
-    css_raw = (PROJECT / "styles.css").read_text(encoding="utf-8")
-    html = html.replace(
-        '<link rel="stylesheet" href="styles.css" />',
-        f"<style>\n{inline_css(css_raw)}\n</style>",
-    )
+    # Inline all CSS files (replace each individual link tag)
+    for css_path in CSS_FILES:
+        css_raw = (PROJECT / css_path).read_text(encoding="utf-8")
+        html = html.replace(
+            f'<link rel="stylesheet" href="{css_path}" />',
+            f"<style>\n{inline_css(css_raw)}\n</style>",
+        )
 
     state_file = PROJECT / ".image-slots.state.json"
     fetch_patch = make_fetch_patch(state_file)
@@ -91,11 +117,13 @@ def build_main(output_name: str):
         f"{fetch_patch}<script>\n{image_slot}\n</script>",
     )
 
-    jsx_raw = (PROJECT / "app.jsx").read_text(encoding="utf-8")
-    html = html.replace(
-        '<script type="text/babel" src="app.jsx"></script>',
-        f'<script type="text/babel">\n{inline_jsx(jsx_raw)}\n</script>',
-    )
+    # Inline all component JSX files (replace each individual script tag)
+    for jsx_path in COMPONENT_FILES:
+        jsx_raw = (PROJECT / jsx_path).read_text(encoding="utf-8")
+        html = html.replace(
+            f'<script type="text/babel" src="{jsx_path}"></script>',
+            f'<script type="text/babel">\n{inline_jsx(jsx_raw)}\n</script>',
+        )
 
     out = DIST / output_name
     out.write_text(html, encoding="utf-8")

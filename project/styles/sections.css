@@ -1,0 +1,130 @@
+/* Complesso San Michele — doors + section-hero */
+
+/* ===== DOORS ===== */
+.doors {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  background: var(--ink);
+  border-top: 1px solid var(--olive);
+  min-height: 560px;
+}
+.door {
+  position: relative;
+  display: flex; flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+  cursor: pointer;
+  isolation: isolate;
+}
+.door:last-child { border-right: none; }
+.door-img {
+  position: absolute; inset: 0;
+  z-index: 0;
+}
+.door-img .img-slot-wrap {
+  width: 100%; height: 100%;
+  transition: transform .8s ease;
+}
+.door:hover .door-img .img-slot-wrap { transform: scale(1.04); }
+.door-rotator { position: absolute; inset: 0; overflow: hidden; }
+.door-frame {
+  position: absolute; inset: 0;
+  background-size: cover;
+  background-position: center;
+  transition: opacity 1.2s ease-in-out, transform 7s ease-out;
+  transform: scale(1.02);
+}
+.door:hover .door-frame { transform: scale(1.06); }
+.door-veil {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(43,38,32,.45) 0%, rgba(43,38,32,.85) 100%);
+  transition: background .4s;
+}
+.door:hover .door-veil {
+  background: linear-gradient(180deg, rgba(43,38,32,.3) 0%, rgba(43,38,32,.75) 100%);
+}
+.door-content {
+  position: relative; z-index: 1;
+  margin-top: auto;
+  padding: 48px 40px 44px;
+  color: var(--paper);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.door-num {
+  font-family: var(--serif);
+  font-size: 13px;
+  letter-spacing: 0.25em;
+  color: var(--ocra-2);
+  margin-bottom: 12px;
+}
+.door-kicker {
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: rgba(250,246,236,0.65);
+  font-weight: 500;
+}
+.door-title {
+  font-size: clamp(28px, 3.4vw, 44px);
+  margin-top: 4px;
+  font-weight: 400;
+}
+.door-desc {
+  font-size: 14px;
+  color: rgba(250,246,236,0.78);
+  margin: 6px 0 16px;
+  max-width: 320px;
+  line-height: 1.55;
+}
+.door-cta {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ocra-2);
+}
+.door-cta .arrow {
+  transition: transform .3s;
+  font-size: 14px;
+}
+.door:hover .door-cta .arrow { transform: translateX(6px); }
+
+@media (max-width: 880px) {
+  .doors { grid-template-columns: 1fr; min-height: auto; }
+  .door { min-height: 340px; border-right: none; border-bottom: 1px solid rgba(255,255,255,.06); }
+  .door-content { padding: 32px 24px 28px; }
+  .door-title { font-size: clamp(24px, 6vw, 36px); }
+}
+
+/* ===== SECTION HERO (sub-pages) ===== */
+.page-section .section-hero {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 80px;
+  align-items: center;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 100px 32px 80px;
+}
+.section-hero-text .kicker { display: block; margin-bottom: 24px; }
+.section-hero-text h2 {
+  font-size: clamp(40px, 6vw, 76px);
+  margin-bottom: 28px;
+}
+.section-hero-text .lead {
+  font-size: 18px;
+  color: var(--ink-2);
+  line-height: 1.65;
+  max-width: 520px;
+}
+.section-hero-img {
+  height: 560px;
+}
+.section-hero-img .img-slot-wrap {
+  width: 100%; height: 100%; aspect-ratio: auto !important;
+}
+@media (max-width: 880px) {
+  .page-section .section-hero {
+    grid-template-columns: 1fr; gap: 32px; padding: 40px 20px 32px;
+  }
+  .section-hero-text { order: 2; }
+  .section-hero-img { height: 300px; order: 1; }
+  .section-hero-text h2 { font-size: clamp(32px, 8vw, 56px); margin-bottom: 16px; }
+  .section-hero-text .lead { font-size: 16px; }
+}

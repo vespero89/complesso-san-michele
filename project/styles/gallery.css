@@ -1,0 +1,127 @@
+/* Complesso San Michele — gallery, events, partner, lab-grid */
+
+/* ===== GALLERY ===== */
+.gallery-section {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 80px 32px;
+  border-top: 1px solid var(--line);
+}
+.section-head {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 48px;
+  max-width: 720px;
+}
+.section-head h3 {
+  font-size: clamp(28px, 3vw, 40px);
+}
+.section-head p {
+  color: var(--muted); font-size: 15px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px 28px;
+}
+.event-card {
+  margin: 0;
+  display: flex; flex-direction: column;
+  gap: 16px;
+}
+.event-card .img-slot-wrap {
+  background: var(--bg-2);
+}
+.event-card figcaption {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ev-year {
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ocra);
+}
+.ev-title {
+  font-family: var(--serif); font-size: 22px;
+  color: var(--ink);
+}
+@media (max-width: 880px) {
+  .gallery-grid { grid-template-columns: 1fr 1fr; gap: 24px 16px; }
+}
+
+/* ===== PARTNER (chiesa) ===== */
+.partner {
+  background: var(--olive);
+  color: var(--paper);
+}
+.partner-inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 100px 32px;
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 64px;
+  align-items: center;
+}
+.partner .kicker { color: var(--ocra-2); }
+.partner h3 {
+  font-size: clamp(32px, 4vw, 56px);
+  margin: 16px 0 20px;
+}
+.partner p {
+  color: rgba(250,246,236,0.85);
+  max-width: 540px;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.link-arrow {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin-top: 28px;
+  font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ocra-2);
+  border-bottom: 1px solid var(--ocra-2);
+  padding-bottom: 4px;
+  transition: gap .2s;
+}
+.link-arrow:hover { gap: 14px; }
+.partner-mark { display: flex; justify-content: center; }
+.lpp-logo {
+  display: block;
+  width: 240px;
+  height: 240px;
+  border: 1px solid rgba(212, 174, 91, 0.3);
+  padding: 16px;
+  background: var(--paper);
+  transition: transform .3s, border-color .3s;
+}
+.lpp-logo:hover {
+  transform: scale(1.02);
+  border-color: var(--ocra-2);
+}
+.lpp-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+@media (max-width: 880px) {
+  .partner-inner { grid-template-columns: 1fr; padding: 60px 24px; gap: 40px; }
+  .lpp-logo { width: 180px; height: 180px; }
+}
+
+/* ===== LAB GRID ===== */
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+.lab-card {
+  margin: 0;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.lab-card figcaption {
+  font-family: var(--serif);
+  font-size: 18px;
+  color: var(--ink);
+}
+@media (max-width: 880px) {
+  .lab-grid { grid-template-columns: repeat(2, 1fr); }
+}
