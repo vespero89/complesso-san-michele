@@ -74,23 +74,107 @@ function Missione({ lang }) {
 }
 window.Missione = Missione;
 
+function loadRecaptcha(siteKey) {
+  return new Promise((resolve) => {
+    if (window.grecaptcha) { resolve(); return; }
+    const s = document.createElement("script");
+    s.src = `https://www.google.com/recaptcha/api.js?render=${siteKey}`;
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
+}
+
 function Newsletter({ lang }) {
   const t = T[lang];
+  const empty = { NomeCognome: "", Email: "", Cellulare: "", Citta: "", Professione: "", Privacy: false };
+  const [form, setForm] = React.useState(empty);
+  const [status, setStatus] = React.useState("idle"); // idle | sending | ok | err | spam | required
+
+  function set(field, val) {
+    setForm((f) => ({ ...f, [field]: val }));
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.NomeCognome.trim() || !form.Email.trim() || !form.Privacy) {
+      setStatus("required"); return;
+    }
+    setStatus("sending");
+
+    function doSubmit(token) {
+      const fd = new FormData();
+      fd.append("NomeCognome", form.NomeCognome.trim());
+      fd.append("Email", form.Email.trim());
+      fd.append("Cellulare", form.Cellulare.trim());
+      fd.append("Citta", form.Citta.trim());
+      fd.append("Professione", form.Professione.trim());
+      fd.append("Privacy", "1");
+      if (token) fd.append("recaptcha_token", token);
+      fetch("/api/newsletter", { method: "POST", body: fd })
+        .then((r) => r.json())
+        .then((d) => setStatus(d.status === "mail_sent" ? "ok" : d.status === "spam" ? "spam" : "err"))
+        .catch(() => setStatus("err"));
+    }
+
+    const siteKey = window.RECAPTCHA_SITE_KEY;
+    if (siteKey) {
+      loadRecaptcha(siteKey).then(() => {
+        window.grecaptcha.ready(() => {
+          window.grecaptcha.execute(siteKey, { action: "newsletter" })
+            .then((token) => doSubmit(token))
+            .catch(() => doSubmit(""));
+        });
+      });
+    } else {
+      doSubmit("");
+    }
+  }
+
+  const sending = status === "sending";
+
   return (
     <section className="newsletter">
       <div className="newsletter-inner">
-        <div>
+        <div className="nl-head">
           <h3>{t.newsletter_title}</h3>
           <p>{t.newsletter_sub}</p>
         </div>
-        <a
-          href="https://www.lavoroperlapersona.it/contatti/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="nl-cta"
-        >
-          {t.subscribe}
-        </a>
+        {status === "ok"
+          ? <p className="nl-feedback nl-ok">{t.nl_ok}</p>
+          : <form className="nl-form" onSubmit={handleSubmit} noValidate>
+              <div className="nl-row">
+                <input className="nl-input" type="text" placeholder={t.nl_name}
+                  value={form.NomeCognome} onChange={(e) => set("NomeCognome", e.target.value)} disabled={sending} />
+                <input className="nl-input" type="email" placeholder={t.nl_email}
+                  value={form.Email} onChange={(e) => set("Email", e.target.value)} disabled={sending} />
+                <input className="nl-input" type="tel" placeholder={t.nl_phone}
+                  value={form.Cellulare} onChange={(e) => set("Cellulare", e.target.value)} disabled={sending} />
+                <input className="nl-input" type="text" placeholder={t.nl_city}
+                  value={form.Citta} onChange={(e) => set("Citta", e.target.value)} disabled={sending} />
+                <input className="nl-input nl-full" type="text" placeholder={t.nl_job}
+                  value={form.Professione} onChange={(e) => set("Professione", e.target.value)} disabled={sending} />
+              </div>
+              <label className="nl-privacy-row">
+                <input type="checkbox" checked={form.Privacy}
+                  onChange={(e) => set("Privacy", e.target.checked)} disabled={sending} />
+                <span>
+                  {t.nl_privacy_pre}
+                  <a href={t.nl_privacy_url} target="_blank" rel="noopener noreferrer" className="nl-privacy-link">
+                    {t.nl_privacy_link_text}
+                  </a>
+                  {t.nl_privacy_post}
+                </span>
+              </label>
+              {(status === "err" || status === "spam" || status === "required") &&
+                <p className="nl-feedback nl-err">
+                  {status === "required" ? t.nl_required : status === "spam" ? t.nl_err_spam : t.nl_err}
+                </p>
+              }
+              <button type="submit" className="nl-submit" disabled={sending}>
+                {sending ? t.nl_sending : t.nl_send}
+              </button>
+            </form>
+        }
       </div>
     </section>
   );

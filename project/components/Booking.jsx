@@ -78,19 +78,34 @@ function BookingSection({ lang }) {
     return cells;
   }
 
-  function submit(e) {
-    e.preventDefault();
-    if (!checkIn || !checkOut || !name || !email) return;
+  function doBooking(token) {
+    const body = { name, email, room, guests, notes, check_in: ymd(checkIn), check_out: ymd(checkOut) };
+    if (token) body.recaptcha_token = token;
     fetch("/api/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, room, guests, notes, check_in: ymd(checkIn), check_out: ymd(checkOut) }),
+      body: JSON.stringify(body),
     })
       .then((r) => {
         if (r.ok) { setSent(true); }
         else { return r.json().then((d) => { alert(d.error || "Errore durante l'invio. Riprova."); }); }
       })
       .catch(() => { setSent(true); });
+  }
+
+  function submit(e) {
+    e.preventDefault();
+    if (!checkIn || !checkOut || !name || !email) return;
+    const siteKey = window.RECAPTCHA_SITE_KEY;
+    if (siteKey && window.grecaptcha) {
+      window.grecaptcha.ready(() => {
+        window.grecaptcha.execute(siteKey, { action: "booking" })
+          .then((token) => doBooking(token))
+          .catch(() => doBooking(""));
+      });
+    } else {
+      doBooking("");
+    }
   }
 
   function reset() {

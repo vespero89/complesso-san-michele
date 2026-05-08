@@ -13,11 +13,12 @@ Tre sezioni: **Chiesa** (centro polifunzionale), **Laboratorio** (studio di arte
 4. [Gestione admin](#gestione-admin)
 5. [Flusso di prenotazione](#flusso-di-prenotazione)
 6. [Email automatiche](#email-automatiche)
-7. [Tariffe dinamiche](#tariffe-dinamiche)
-8. [Attivare i pagamenti Stripe](#attivare-i-pagamenti-stripe)
-9. [Aggiungere le foto](#aggiungere-le-foto)
-10. [Raccomandazioni di sicurezza](#raccomandazioni-di-sicurezza)
-11. [Sviluppi futuri](#sviluppi-futuri)
+7. [Newsletter e reCAPTCHA](#newsletter-e-recaptcha)
+8. [Tariffe dinamiche](#tariffe-dinamiche)
+9. [Attivare i pagamenti Stripe](#attivare-i-pagamenti-stripe)
+10. [Aggiungere le foto](#aggiungere-le-foto)
+11. [Raccomandazioni di sicurezza](#raccomandazioni-di-sicurezza)
+12. [Sviluppi futuri](#sviluppi-futuri)
 
 ---
 
@@ -403,6 +404,38 @@ MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx   # App Password (non la password Google)
 
 Per generare un'App Password Gmail: `account.google.com → Sicurezza → Verifica in due passaggi → Password per le app`.  
 Gmail è meno consigliato per produzione per via dei limiti di invio e delle policy anti-spam.
+
+---
+
+## Newsletter e reCAPTCHA
+
+Il form newsletter invia i dati direttamente all'endpoint REST di Contact Form 7 su `lavoroperlapersona.it` tramite un proxy Flask (`POST /api/newsletter`). Il form di prenotazione (`POST /api/bookings`) usa lo stesso meccanismo di protezione.
+
+### Test in locale (dev)
+
+Con `RECAPTCHA_ENABLED=false` (default nel `.env.example`) la verifica viene saltata e i form funzionano subito senza configurare nulla.
+
+Per verificare che il submit della newsletter funzioni, compila il form e controlla nella scheda **Network** del browser che la risposta da `/api/newsletter` contenga:
+
+```json
+{"status": "mail_sent"}
+```
+
+### Attivare reCAPTCHA v3 in produzione
+
+1. Vai su [google.com/recaptcha/admin/create](https://www.google.com/recaptcha/admin/create)
+2. Tipo: **reCAPTCHA v3** — inserisci il dominio del sito (es. `complessosanmichele-offida.it`)
+3. Copia le chiavi nel `.env`:
+
+```env
+RECAPTCHA_ENABLED=true
+RECAPTCHA_SITE_KEY=6Lc...      # chiave pubblica (va nel browser)
+RECAPTCHA_SECRET_KEY=6Lc...   # chiave privata (rimane sul server)
+```
+
+4. Riavvia il servizio (`docker compose up -d --build`)
+
+reCAPTCHA v3 è **invisibile**: non mostra nessun checkbox all'utente. Ogni submit riceve un punteggio (0–1); il server accetta le richieste con punteggio ≥ 0.5 e rifiuta le probabili bot.
 
 ---
 

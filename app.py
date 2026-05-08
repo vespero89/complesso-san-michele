@@ -24,6 +24,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from functools import wraps
 
+import requests as http_requests
 import stripe
 from dotenv import load_dotenv
 from flask import (
@@ -139,6 +140,28 @@ MAIL_PASSWORD  = os.getenv("MAIL_PASSWORD", "")
 ADMIN_EMAIL    = os.getenv("ADMIN_EMAIL", "info@complessosanmichele-offida.it")
 
 ACTION_TOKEN_TTL = 7 * 24 * 3600  # link validi 7 giorni
+
+# ─── reCAPTCHA v3 ──────────────────────────────────────────────────────────────
+
+RECAPTCHA_ENABLED = os.getenv("RECAPTCHA_ENABLED", "false").lower() == "true"
+RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY", "")
+RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY", "")
+
+
+def verify_recaptcha(token):
+    """Verifica token reCAPTCHA v3 con Google. Ritorna True in dev (disabled)."""
+    if not RECAPTCHA_ENABLED:
+        return True
+    try:
+        resp = http_requests.post(
+            "https://www.google.com/recaptcha/api/siteverify",
+            data={"secret": RECAPTCHA_SECRET_KEY, "response": token},
+            timeout=5,
+        )
+        data = resp.json()
+        return data.get("success") and data.get("score", 0) >= 0.5
+    except Exception:
+        return False
 
 # ─── Modelli ───────────────────────────────────────────────────────────────────
 
@@ -448,6 +471,36 @@ def notify_guest_status_change(booking) -> None:
     )
 
 
+# ─── Config pubblica per il frontend ──────────────────────────────────────────
+
+
+@app.route("/config.js")
+def frontend_config():
+    from flask import Response
+    js = f'window.RECAPTCHA_SITE_KEY = {__import__("json").dumps(RECAPTCHA_SITE_KEY)};'
+    return Response(js, mimetype="application/javascript")
+
+
+# ─── API pubblica: newsletter proxy → CF7 lavoroperlapersona.it ───────────────
+
+
+@app.route("/api/newsletter", methods=["POST"])
+@limiter.limit("5 per minute")
+def newsletter_proxy():
+    if not verify_recaptcha(request.form.get("recaptcha_token", "")):
+        return jsonify({"status": "spam", "message": "Verifica anti-spam fallita."}), 400
+    fd = {k: v for k, v in request.form.items() if k != "recaptcha_token"}
+    try:
+        resp = http_requests.post(
+            "https://www.lavoroperlapersona.it/wp-json/contact-form-7/v1/contact-forms/23295/feedback",
+            data=fd,
+            timeout=10,
+        )
+        return jsonify(resp.json()), resp.status_code
+    except Exception:
+        return jsonify({"status": "error", "message": "Servizio temporaneamente non disponibile."}), 502
+
+
 # ─── Serve frontend statico ────────────────────────────────────────────────────
 
 
@@ -515,6 +568,9 @@ def unavailable_dates():
 def create_booking():
     """Crea una nuova richiesta di prenotazione (status: pending)."""
     data = request.get_json(silent=True) or {}
+
+    if not verify_recaptcha(data.get("recaptcha_token", "")):
+        return jsonify({"error": "Verifica anti-spam fallita."}), 400
 
     required = ("name", "email", "room", "check_in", "check_out")
     missing = [f for f in required if not data.get(f)]
