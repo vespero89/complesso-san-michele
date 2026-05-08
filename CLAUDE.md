@@ -26,6 +26,8 @@ Sito vetrina + backend prenotazioni B&B. Flask SPA.
 - `GET  /api/unavailable?room=double&from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `POST /api/bookings` — crea prenotazione (→ email admin con link conferma/rifiuta)
 - `GET  /api/price?room=double&check_in=...&check_out=...` — stima prezzo
+- `POST /api/newsletter` — proxy al form di lavoroperlapersona.it/contatti/
+- `GET  /config.js` — inietta `window.RECAPTCHA_SITE_KEY` al frontend
 
 ## Admin
 - URL: `/gestione` (non /admin — oscurato)
@@ -41,10 +43,26 @@ Sito vetrina + backend prenotazioni B&B. Flask SPA.
 
 ## Avvio locale
 ```bash
-cp .env.example .env   # imposta SECRET_KEY e ADMIN_PASSWORD
+cp .env.example .env
+# Genera l'hash della password admin e incollalo in ADMIN_PASSWORD_HASH:
+python -c "from werkzeug.security import generate_password_hash; print(generate_password_hash('la-tua-password'))"
 docker compose up -d --build
 # oppure: python app.py
 ```
+
+## Strumenti dev
+```bash
+# Genera HTML standalone (preview per il committente) → dist/
+python build_standalone.py            # sito principale
+python build_standalone.py --page dimora
+python build_standalone.py --all
+```
+
+## reCAPTCHA v3
+- Attivo su form prenotazione e newsletter
+- `RECAPTCHA_ENABLED=false` (default): verifica saltata, nessuna chiave necessaria
+- Per attivare: registra dominio su https://www.google.com/recaptcha/admin/create (tipo v3), poi imposta `RECAPTCHA_ENABLED=true`, `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY` nel `.env`
+- La chiave pubblica viene servita al frontend via `/config.js`
 
 ## Newsletter
 La sezione newsletter del sito rimanda al form di `lavoroperlapersona.it/contatti/` (link in nuovo tab). Non c'è gestione newsletter interna.
