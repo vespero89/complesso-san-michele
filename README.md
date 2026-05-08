@@ -33,13 +33,15 @@ complesso-san-michele/
 │
 ├── templates/              # Template Jinja2 (solo pannello admin)
 │   ├── login.html          # Pagina di login admin
-│   ├── admin.html          # Dashboard prenotazioni + tariffe + newsletter
+│   ├── admin.html          # Dashboard prenotazioni + tariffe
 │   └── action_result.html  # Risposta a conferma/rifiuto via email
 │
 └── project/                # Frontend statico (React SPA)
     ├── Complesso San Michele.html   # Entry point del sito
-    ├── app.jsx             # Tutta la logica React (SPA)
-    ├── styles.css          # Stili globali
+    ├── app.jsx             # Entry point SPA React
+    ├── components/         # Componenti React (Header, Home, Chiesa, Laboratorio, Dimora, Booking, shared)
+    ├── styles/             # CSS suddiviso per area
+    ├── styles.css          # Import aggregato design system
     ├── image-slot.js       # Componente web per placeholder foto
     └── assets/
         ├── lpp-logo.jpg    # Logo Lavoro per la Persona
@@ -58,7 +60,6 @@ Browser
   ├── GET  /api/unavailable     → date occupate (calendario Dimora)
   ├── GET  /api/price           → stima prezzo soggiorno
   ├── POST /api/bookings        → nuova richiesta prenotazione → email admin
-  ├── POST /api/newsletter      → iscrizione newsletter
   │
   ├── POST /api/bookings/{id}/checkout  → sessione Stripe (se abilitato)
   ├── POST /api/webhooks/stripe          → webhook pagamento Stripe
@@ -281,7 +282,6 @@ Il pannello admin è accessibile all'URL **`/gestione`** (non `/admin`, per ridu
 | `/gestione/login` | Pagina di login (rate-limited: 5 tentativi/min per IP) |
 | `/gestione` | Dashboard prenotazioni |
 | `/gestione/rates` | Gestione tariffe dinamiche |
-| `/gestione/newsletter` | Lista iscritti newsletter |
 | `/gestione/action?token=…` | Conferma/rifiuta da link email (no login, token HMAC) |
 | `/gestione/logout` | Logout |
 

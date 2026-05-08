@@ -1,6 +1,6 @@
 """
 Complesso San Michele — Offida
-Flask backend: prenotazioni Dimora + newsletter + admin + Stripe
+Flask backend: prenotazioni Dimora + admin + Stripe
 
 Avvio rapido:
     pip install -r requirements.txt
@@ -205,15 +205,6 @@ class Booking(db.Model):
         }.get(self.payment_status or "", "—")
 
 
-class NewsletterSubscriber(db.Model):
-    __tablename__ = "newsletter_subscribers"
-
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(200), unique=True, nullable=False)
-    subscribed_at = db.Column(db.DateTime, default=datetime.utcnow)
-    active = db.Column(db.Boolean, default=True)
-
-
 class RoomRate(db.Model):
     """
     Tariffa per camera in un periodo.
@@ -250,7 +241,6 @@ def get_stats():
         "pending": Booking.query.filter_by(status="pending").count(),
         "confirmed": Booking.query.filter_by(status="confirmed").count(),
         "rejected": Booking.query.filter_by(status="rejected").count(),
-        "subscribers": NewsletterSubscriber.query.filter_by(active=True).count(),
     }
 
 
@@ -657,30 +647,6 @@ def stripe_webhook():
     return jsonify({"received": True})
 
 
-# ─── API pubblica: newsletter ─────────────────────────────────────────────────
-
-
-@app.route("/api/newsletter", methods=["POST"])
-@limiter.limit("5 per minute")
-def subscribe_newsletter():
-    data = request.get_json(silent=True) or {}
-    email = (data.get("email") or "").strip().lower()
-    if not email or "@" not in email:
-        return jsonify({"error": "Email valida obbligatoria."}), 400
-
-    existing = NewsletterSubscriber.query.filter_by(email=email).first()
-    if existing:
-        if not existing.active:
-            existing.active = True
-            db.session.commit()
-        return jsonify({"message": "Già iscritto.", "id": existing.id}), 200
-
-    sub = NewsletterSubscriber(email=email)
-    db.session.add(sub)
-    db.session.commit()
-    return jsonify({"message": "Iscrizione completata.", "id": sub.id}), 201
-
-
 # ─── Azione da email (token firmato, no login) ───────────────────────────────
 
 
@@ -786,25 +752,6 @@ def update_booking_status(booking_id):
     db.session.commit()
     notify_guest_status_change(booking)  # email ospite se confirmed/rejected
     return redirect(url_for("admin_dashboard", status=request.args.get("status", "")))
-
-
-# ─── Admin: newsletter ────────────────────────────────────────────────────────
-
-
-@app.route("/gestione/newsletter")
-@login_required
-def admin_newsletter():
-    subscribers = NewsletterSubscriber.query.order_by(
-        NewsletterSubscriber.subscribed_at.desc()
-    ).all()
-    return render_template(
-        "admin.html",
-        bookings=[],
-        stats=get_stats(),
-        subscribers=subscribers,
-        status_filter="",
-        stripe_enabled=STRIPE_ENABLED,
-    )
 
 
 # ─── Admin: tariffe ───────────────────────────────────────────────────────────

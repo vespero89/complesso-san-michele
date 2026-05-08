@@ -76,19 +76,6 @@ window.Missione = Missione;
 
 function Newsletter({ lang }) {
   const t = T[lang];
-  const [email, setEmail] = React.useState("");
-  const [done, setDone] = React.useState(false);
-  function submit(e) {
-    e.preventDefault();
-    if (!email) return;
-    fetch("/api/newsletter", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    }).catch(() => {});
-    setDone(true);
-    setTimeout(() => { setDone(false); setEmail(""); }, 3000);
-  }
   return (
     <section className="newsletter">
       <div className="newsletter-inner">
@@ -96,16 +83,14 @@ function Newsletter({ lang }) {
           <h3>{t.newsletter_title}</h3>
           <p>{t.newsletter_sub}</p>
         </div>
-        <form onSubmit={submit} className="nl-form">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder={t.newsletter_placeholder}
-            required
-          />
-          <button type="submit">{done ? "✓" : t.subscribe}</button>
-        </form>
+        <a
+          href="https://www.lavoroperlapersona.it/contatti/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="nl-cta"
+        >
+          {t.subscribe}
+        </a>
       </div>
     </section>
   );

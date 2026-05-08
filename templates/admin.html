@@ -132,7 +132,6 @@ button, select { font-family: inherit; cursor: pointer; }
 }
 .stat-card.pending .stat-value  { color: #a0620d; }
 .stat-card.confirmed .stat-value { color: var(--green); }
-.stat-card.newsletter .stat-value { color: var(--olive); }
 
 /* ─── Filtri stato ───────────────────────────────────────── */
 .filter-bar {
@@ -345,10 +344,6 @@ tr:hover td { background: rgba(43,38,32,0.02); }
        class="{{ 'active' if request.endpoint == 'admin_rates' else '' }}">
       Tariffe
     </a>
-    <a href="{{ url_for('admin_newsletter') }}"
-       class="{{ 'active' if request.endpoint == 'admin_newsletter' else '' }}">
-      Newsletter
-    </a>
   </nav>
   <div class="header-right">
     <a href="/" target="_blank" class="admin-back">← Sito</a>
@@ -378,10 +373,6 @@ tr:hover td { background: rgba(43,38,32,0.02); }
       <div class="stat-label">Rifiutate / Annullate</div>
       <div class="stat-value">{{ stats.rejected }}</div>
     </div>
-    <div class="stat-card newsletter">
-      <div class="stat-label">Newsletter attive</div>
-      <div class="stat-value">{{ stats.subscribers }}</div>
-    </div>
   </div>
 
   {# ─── Stripe status ─── #}
@@ -392,7 +383,6 @@ tr:hover td { background: rgba(43,38,32,0.02); }
   {% endif %}
 
   {# ─── Sezione prenotazioni ─── #}
-  {% if subscribers is not defined %}
 
   <div class="filter-bar">
     <span>Filtra:</span>
@@ -581,46 +571,6 @@ tr:hover td { background: rgba(43,38,32,0.02); }
     </div>
 
   </div>
-
-  {# ─── Sezione newsletter ─── #}
-  {% else %}
-
-  <h2 class="section-title">Iscritti alla newsletter</h2>
-
-  <div class="bookings-table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Email</th>
-          <th>Data iscrizione</th>
-          <th>Stato</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in subscribers %}
-        <tr>
-          <td style="color:var(--muted);font-size:12px;">{{ s.id }}</td>
-          <td>{{ s.email }}</td>
-          <td class="td-created">{{ s.subscribed_at.strftime('%d/%m/%Y %H:%M') }}</td>
-          <td>
-            {% if s.active %}
-              <span class="badge badge-confirmed">Attivo</span>
-            {% else %}
-              <span class="badge badge-cancelled">Rimosso</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="4" class="empty-state">Nessun iscritto.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  {% endif %}
 
 </div>
 </body>
